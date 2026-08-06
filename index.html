@@ -855,6 +855,8 @@ let activePinId = null;
 let pendingClick = null; // {xPct,yPct} while creating a new pin
 let nextPinNumber = 1;
 let zoomLevel = 1;
+let renderedZoom = 1;
+let baseFitScale = 1;
 let stageBaseWidth = 0;
 let stageBaseHeight = 0;
 
@@ -898,42 +900,75 @@ async function renderPage(){
   stage.classList.remove('empty');
   stage.innerHTML = '';
   const page = await pdfDoc.getPage(currentPage);
-  const containerWidth = Math.min(document.querySelector('.stage-wrap').clientWidth - 56, 1100);
-  const baseViewport = page.getViewport({scale:1});
-  const scale = containerWidth / baseViewport.width;
-  const viewport = page.getViewport({scale: Math.max(scale, 0.4)});
-
-  const canvas = document.createElement('canvas');
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
-  stage.appendChild(canvas);
-  stage.style.width = viewport.width + 'px';
-  stage.style.height = viewport.height + 'px';
-
-  const ctx = canvas.getContext('2d');
-  await page.render({canvasContext: ctx, viewport}).promise;
+  const containerWidth = Math.min(stageWrap.clientWidth - 56, 1100);
+  const nativeViewport = page.getViewport({scale:1});
+  baseFitScale = Math.max(containerWidth / nativeViewport.width, 0.4);
 
   pageLabel.textContent = currentPage + ' / ' + totalPages;
-
-  stageBaseWidth = viewport.width;
-  stageBaseHeight = viewport.height;
-  zoomLevel = 1;
-  applyZoom();
   zoomControls.style.display = 'flex';
+
+  zoomLevel = 1;
+  renderedZoom = 1;
+  await renderCanvasAtZoom(1);
 
   stage.addEventListener('click', onStageClick);
   redrawPins();
 }
 
+// Renders the PDF page at a crisp resolution for the given zoom level.
+// The canvas's raw pixel buffer is rendered at (display size × device pixel
+// ratio) so it looks sharp on Retina/high-DPI screens instead of blurry.
+async function renderCanvasAtZoom(targetZoom){
+  if(!pdfDoc) return;
+  const page = await pdfDoc.getPage(currentPage);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  const displayScale = baseFitScale * targetZoom;
+  const renderScale = displayScale * dpr;
+  const displayViewport = page.getViewport({scale: displayScale});
+  const renderViewport = page.getViewport({scale: renderScale});
+
+  let canvas = stage.querySelector('canvas');
+  if(!canvas){
+    canvas = document.createElement('canvas');
+    stage.insertBefore(canvas, stage.firstChild);
+  }
+  canvas.width = renderViewport.width;
+  canvas.height = renderViewport.height;
+  canvas.style.width = displayViewport.width + 'px';
+  canvas.style.height = displayViewport.height + 'px';
+
+  const ctx = canvas.getContext('2d');
+  await page.render({canvasContext: ctx, viewport: renderViewport}).promise;
+
+  stageBaseWidth = displayViewport.width;
+  stageBaseHeight = displayViewport.height;
+  stage.style.width = stageBaseWidth + 'px';
+  stage.style.height = stageBaseHeight + 'px';
+
+  renderedZoom = targetZoom;
+  applyZoom();
+}
+
 // ---------- Zoom ----------
 function applyZoom(){
-  stage.style.transform = 'scale(' + zoomLevel + ')';
-  zoomSizer.style.width = (stageBaseWidth * zoomLevel) + 'px';
-  zoomSizer.style.height = (stageBaseHeight * zoomLevel) + 'px';
+  const t = zoomLevel / renderedZoom;
+  stage.style.transform = 'scale(' + t + ')';
+  zoomSizer.style.width = (stageBaseWidth * t) + 'px';
+  zoomSizer.style.height = (stageBaseHeight * t) + 'px';
   zoomPct.textContent = Math.round(zoomLevel * 100) + '%';
 }
 
+// After zooming stops for a moment, re-render the canvas at full sharpness
+// for the current zoom level (avoids re-rendering on every pinch frame,
+// which would be too slow).
+let sharpenTimer = null;
+function scheduleSharpen(){
+  clearTimeout(sharpenTimer);
+  sharpenTimer = setTimeout(()=>{ renderCanvasAtZoom(zoomLevel); }, 350);
+}
+
 function setZoom(newZoom, focalClientX, focalClientY){
+  if(!pdfDoc) return;
   newZoom = Math.min(4, Math.max(0.5, newZoom));
   if(focalClientX !== undefined){
     // keep the point under the finger/cursor stable while zooming
@@ -949,6 +984,7 @@ function setZoom(newZoom, focalClientX, focalClientY){
     zoomLevel = newZoom;
     applyZoom();
   }
+  scheduleSharpen();
 }
 
 document.getElementById('zoomInBtn').addEventListener('click', ()=>setZoom(zoomLevel + 0.25));
