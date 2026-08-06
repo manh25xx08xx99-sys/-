@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-<title>Sơ đồ ảnh khảo sát công trình</title>
+<title>現場写真マップ</title>
 
 <!-- PWA / "Add to Home Screen" support -->
 <meta name="mobile-web-app-capable" content="yes">
@@ -453,14 +453,70 @@
     display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;
   }
   .report-photo-grid img{width:100%;border-radius:4px;border:1px solid #ccc;}
+
+  /* ---------- Continuous camera modal ---------- */
+  .camera-wrap{
+    position:fixed;inset:0;background:#000;
+    display:flex;flex-direction:column;
+    z-index:250;
+  }
+  .camera-wrap video{
+    flex:1;width:100%;height:100%;object-fit:cover;background:#000;
+  }
+  .camera-topbar{
+    position:absolute;top:0;left:0;right:0;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 14px calc(14px + env(safe-area-inset-top,0px));
+    padding-top:calc(14px + env(safe-area-inset-top,0px));
+    background:linear-gradient(rgba(0,0,0,.55), transparent);
+    z-index:2;
+  }
+  .camera-topbar .camera-close{background:rgba(20,20,20,.55);color:#fff;font-size:16px;}
+  .camera-hint{color:#E8EDF5;font-size:11px;opacity:.85;text-align:center;flex:1;}
+  .camera-count{
+    background:var(--accent);color:#1A0B02;font-weight:700;
+    border-radius:14px;padding:3px 10px;font-size:12px;
+  }
+  .camera-filmstrip{
+    position:absolute;
+    bottom:118px;left:0;right:0;
+    display:flex;gap:8px;padding:0 14px;
+    overflow-x:auto;
+    z-index:2;
+  }
+  .camera-filmstrip img{
+    width:52px;height:52px;object-fit:cover;border-radius:8px;
+    border:2px solid rgba(255,255,255,.7);flex-shrink:0;
+    box-shadow:0 4px 10px rgba(0,0,0,.4);
+  }
+  .camera-controls{
+    position:absolute;bottom:0;left:0;right:0;
+    display:flex;flex-direction:column;align-items:center;gap:14px;
+    padding:18px 18px calc(22px + env(safe-area-inset-bottom,0px));
+    background:linear-gradient(transparent, rgba(0,0,0,.6));
+    z-index:2;
+  }
+  .camera-shutter{
+    width:70px;height:70px;border-radius:50%;
+    background:#fff;border:4px solid rgba(255,255,255,.4);
+    padding:0;
+  }
+  .camera-shutter:active{background:#ddd;}
+  .camera-done{padding:9px 20px;}
+  .flash{
+    position:absolute;inset:0;background:#fff;opacity:0;
+    pointer-events:none;z-index:5;
+  }
+  .flash.go{animation:flashpop .25s ease;}
+  @keyframes flashpop{0%{opacity:.85;}100%{opacity:0;}}
 </style>
 </head>
 <body>
 
 <header>
   <div class="brand">
-    <span class="tag">KHẢO SÁT</span>
-    <h1>Sơ đồ ảnh công trình<small>PDF mặt bằng · ghim vị trí · gắn ảnh</small></h1>
+    <span class="tag" id="tagLabel">現地調査</span>
+    <h1><span id="titleText">現場写真マップ</span><small id="subtitleText">PDF図面 · 位置ピン · 写真添付</small></h1>
   </div>
 
   <div class="pagebar" id="pagebar" style="display:none;">
@@ -469,9 +525,10 @@
     <button id="nextPage">›</button>
   </div>
 
+  <button class="btn-ghost btn-sm" id="langToggle">🌐 VI</button>
   <input type="file" id="pdfInput" accept="application/pdf">
-  <button class="btn-ghost" id="loadPdfBtn">📄 Tải file PDF mặt bằng</button>
-  <button class="btn-primary" id="printBtn" style="display:none;">🖨️ Xuất báo cáo</button>
+  <button class="btn-ghost" id="loadPdfBtn">📄 図面PDFを読み込む</button>
+  <button class="btn-primary" id="printBtn" style="display:none;">🖨️ レポート出力</button>
 </header>
 
 <div class="layout">
@@ -479,24 +536,24 @@
     <div id="stage" class="stage empty">
       <div class="empty-msg">
         <span class="glyph">🗺️</span>
-        <h2>Chưa có bản vẽ mặt bằng</h2>
-        <p>Tải lên file PDF mặt bằng công trình. Sau đó chạm/click vào bất kỳ vị trí nào trên bản vẽ để ghim và gắn ảnh chụp tại vị trí đó.</p>
+        <h2 id="emptyTitleText">図面が読み込まれていません</h2>
+        <p id="emptyDescText">現場の図面PDFをアップロードしてください。その後、図面上の任意の位置をタップするとピンを立て、その場所の写真を添付できます。</p>
       </div>
     </div>
   </div>
 
   <aside>
     <div class="aside-head">
-      <h3>Danh sách vị trí <span class="count mono" id="pinCount">0</span></h3>
-      <p>Chạm vào bản vẽ để thêm ghim mới</p>
+      <h3><span id="pinListTitleText">ピン一覧</span> <span class="count mono" id="pinCount">0</span></h3>
+      <p id="pinListDescText">図面をタップして新しいピンを追加</p>
     </div>
     <div class="pin-list" id="pinList">
-      <div class="empty-list">Chưa có ghim nào trên trang này.<br>Tải PDF rồi chạm vào bản vẽ để bắt đầu.</div>
+      <div class="empty-list">このページにはまだピンがありません。<br>PDFを読み込んで図面をタップしてください。</div>
     </div>
     <div class="aside-foot">
-      <button class="btn-ghost btn-sm" id="exportJsonBtn">⬇️ Lưu dữ liệu (.json)</button>
+      <button class="btn-ghost btn-sm" id="exportJsonBtn">⬇️ データを保存 (.json)</button>
       <input type="file" id="importJsonInput" accept="application/json" class="hidden">
-      <button class="btn-ghost btn-sm" id="importJsonBtn">⬆️ Nạp lại</button>
+      <button class="btn-ghost btn-sm" id="importJsonBtn">⬆️ 読み込み直す</button>
     </div>
   </aside>
 </div>
@@ -507,27 +564,45 @@
     <div class="modal-head">
       <div class="title">
         <span class="badge mono" id="modalPinNum">#1</span>
-        <h3>Vị trí khảo sát</h3>
+        <h3 id="modalTitleText">調査位置</h3>
       </div>
       <button class="icon-x" id="closeModal">✕</button>
     </div>
     <div class="modal-body">
       <div class="field">
-        <label>Ghi chú vị trí</label>
-        <input type="text" id="pinLabel" placeholder="VD: Tường ngoài trục A - B, tầng 2">
+        <label id="labelNoteText">位置メモ</label>
+        <input type="text" id="pinLabel" placeholder="例：A-B通り外壁、2階">
       </div>
       <div class="field">
-        <label>Ảnh chụp <span id="photoCountLabel" class="mono" style="text-transform:none;color:#8FA4C4;"></span></label>
+        <label id="labelPhotosText">写真</label><span id="photoCountLabel" class="mono" style="text-transform:none;color:#8FA4C4;"></span>
         <div class="photo-grid" id="photoGrid"></div>
       </div>
     </div>
     <div class="modal-foot">
-      <button class="btn-danger" id="deletePinBtn">🗑️ Xoá ghim</button>
+      <button class="btn-danger" id="deletePinBtn">🗑️ ピンを削除</button>
       <div class="spacer"></div>
-      <button class="btn-primary" id="doneBtn">Xong</button>
+      <button class="btn-primary" id="doneBtn">完了</button>
     </div>
   </div>
-  <input type="file" id="photoInput" accept="image/*" capture="environment" multiple class="hidden">
+  <input type="file" id="photoInput" accept="image/*" multiple class="hidden">
+</div>
+
+<!-- Continuous camera modal -->
+<div class="overlay hidden" id="cameraModal">
+  <div class="camera-wrap">
+    <video id="cameraVideo" autoplay playsinline muted></video>
+    <canvas id="cameraCanvas" class="hidden"></canvas>
+    <div class="camera-topbar">
+      <button class="icon-x camera-close" id="cameraClose">✕</button>
+      <span class="camera-hint mono" id="cameraHintText">シャッターで連続撮影できます</span>
+      <span class="camera-count mono" id="cameraShotCount">0</span>
+    </div>
+    <div class="camera-filmstrip" id="cameraFilmstrip"></div>
+    <div class="camera-controls">
+      <button class="camera-shutter" id="cameraShutterBtn"></button>
+      <button class="btn-primary camera-done" id="cameraDoneBtn">完了して戻る</button>
+    </div>
+  </div>
 </div>
 
 <!-- Lightbox -->
@@ -543,6 +618,83 @@
 
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ---------- i18n ----------
+const I18N = {
+  ja: {
+    tag:'現地調査', title:'現場写真マップ', subtitle:'PDF図面 · 位置ピン · 写真添付',
+    loadPdf:'📄 図面PDFを読み込む', exportReport:'🖨️ レポート出力',
+    emptyTitle:'図面が読み込まれていません',
+    emptyDesc:'現場の図面PDFをアップロードしてください。その後、図面上の任意の位置をタップするとピンを立て、その場所の写真を添付できます。',
+    pinListTitle:'ピン一覧', pinListDesc:'図面をタップして新しいピンを追加',
+    pinListEmpty:'このページにはまだピンがありません。<br>PDFを読み込んで図面をタップしてください。',
+    saveJson:'⬇️ データを保存 (.json)', loadJson:'⬆️ 読み込み直す',
+    modalTitle:'調査位置', labelNote:'位置メモ', placeholderNote:'例：A-B通り外壁、2階',
+    labelPhotos:'写真', addPhoto:'📷 写真を撮る', addPhotoUpload:'🖼️ ライブラリから選択',
+    deletePin:'🗑️ ピンを削除', done:'完了',
+    pinLabelPrefix:'ピン #', noName:'（名称未設定）', photosSuffix:'枚', noPhoto:'写真なし',
+    cameraHint:'シャッターで連続撮影できます', cameraDone:'完了して戻る',
+    toastPdfLoaded:(n)=>`図面を読み込みました：${n}`, toastPinDeleted:'ピンを削除しました',
+    toastNoData:'保存するデータがありません', toastSaved:'データを保存しました',
+    toastLoaded:(n)=>`データを読み込みました（${n}件のピン）`, toastInvalid:'データファイルが無効です',
+    toastNoPinForReport:'レポートに出力できるピンがありません',
+    toastCameraError:'カメラを起動できません。「ライブラリから選択」をご利用ください。',
+    reportPage:(n)=>`${n}ページ目`, reportNoPhoto:'写真なし', langBtn:'🌐 VI'
+  },
+  vi: {
+    tag:'KHẢO SÁT', title:'Sơ đồ ảnh công trình', subtitle:'PDF mặt bằng · ghim vị trí · gắn ảnh',
+    loadPdf:'📄 Tải file PDF mặt bằng', exportReport:'🖨️ Xuất báo cáo',
+    emptyTitle:'Chưa có bản vẽ mặt bằng',
+    emptyDesc:'Tải lên file PDF mặt bằng công trình. Sau đó chạm/click vào bất kỳ vị trí nào trên bản vẽ để ghim và gắn ảnh chụp tại vị trí đó.',
+    pinListTitle:'Danh sách vị trí', pinListDesc:'Chạm vào bản vẽ để thêm ghim mới',
+    pinListEmpty:'Chưa có ghim nào trên trang này.<br>Tải PDF rồi chạm vào bản vẽ để bắt đầu.',
+    saveJson:'⬇️ Lưu dữ liệu (.json)', loadJson:'⬆️ Nạp lại',
+    modalTitle:'Vị trí khảo sát', labelNote:'Ghi chú vị trí', placeholderNote:'VD: Tường ngoài trục A - B, tầng 2',
+    labelPhotos:'Ảnh chụp', addPhoto:'📷 Chụp ảnh', addPhotoUpload:'🖼️ Chọn từ thư viện',
+    deletePin:'🗑️ Xoá ghim', done:'Xong',
+    pinLabelPrefix:'GHIM #', noName:'(Chưa đặt tên)', photosSuffix:'ảnh', noPhoto:'Chưa có ảnh',
+    cameraHint:'Bấm nút chụp để chụp nhiều ảnh liên tiếp', cameraDone:'Xong, quay lại',
+    toastPdfLoaded:(n)=>`Đã tải bản vẽ: ${n}`, toastPinDeleted:'Đã xoá ghim',
+    toastNoData:'Chưa có dữ liệu để lưu', toastSaved:'Đã lưu file dữ liệu',
+    toastLoaded:(n)=>`Đã nạp lại dữ liệu (${n} ghim)`, toastInvalid:'File dữ liệu không hợp lệ',
+    toastNoPinForReport:'Chưa có ghim nào để xuất báo cáo',
+    toastCameraError:'Không thể mở camera. Vui lòng dùng "Chọn từ thư viện".',
+    reportPage:(n)=>`Trang ${n}`, reportNoPhoto:'Không có ảnh', langBtn:'🌐 日本語'
+  }
+};
+let currentLang = 'ja';
+function t(key){ return I18N[currentLang][key]; }
+
+function applyLanguage(){
+  document.documentElement.lang = currentLang;
+  document.getElementById('tagLabel').textContent = t('tag');
+  document.getElementById('titleText').textContent = t('title');
+  document.getElementById('subtitleText').textContent = t('subtitle');
+  document.getElementById('loadPdfBtn').textContent = t('loadPdf');
+  document.getElementById('printBtn').textContent = t('exportReport');
+  document.getElementById('emptyTitleText').textContent = t('emptyTitle');
+  document.getElementById('emptyDescText').textContent = t('emptyDesc');
+  document.getElementById('pinListTitleText').textContent = t('pinListTitle');
+  document.getElementById('pinListDescText').textContent = t('pinListDesc');
+  document.getElementById('exportJsonBtn').textContent = t('saveJson');
+  document.getElementById('importJsonBtn').textContent = t('loadJson');
+  document.getElementById('modalTitleText').textContent = t('modalTitle');
+  document.getElementById('labelNoteText').textContent = t('labelNote');
+  document.getElementById('pinLabel').placeholder = t('placeholderNote');
+  document.getElementById('labelPhotosText').textContent = t('labelPhotos');
+  document.getElementById('deletePinBtn').textContent = t('deletePin');
+  document.getElementById('doneBtn').textContent = t('done');
+  document.getElementById('cameraHintText').textContent = t('cameraHint');
+  document.getElementById('cameraDoneBtn').textContent = t('cameraDone');
+  document.getElementById('langToggle').textContent = t('langBtn');
+  redrawPins();
+  if(!pinModal.classList.contains('hidden')) renderPhotoGrid();
+}
+
+document.getElementById('langToggle').addEventListener('click', ()=>{
+  currentLang = currentLang === 'ja' ? 'vi' : 'ja';
+  applyLanguage();
+});
 
 // ---------- State ----------
 let pdfDoc = null;
@@ -579,7 +731,7 @@ document.getElementById('pdfInput').addEventListener('change', async (e)=>{
   pagebar.style.display = totalPages > 1 ? 'flex' : 'none';
   document.getElementById('printBtn').style.display = 'inline-flex';
   await renderPage();
-  showToast('Đã tải bản vẽ: ' + file.name);
+  showToast(t('toastPdfLoaded')(file.name));
 });
 
 document.getElementById('prevPage').addEventListener('click', ()=>{ if(currentPage>1){currentPage--; renderPage();} });
@@ -638,7 +790,7 @@ function renderPinList(){
   const pagePins = pins.filter(p=>p.page===currentPage);
   pinCount.textContent = pins.length;
   if(pagePins.length === 0){
-    pinList.innerHTML = '<div class="empty-list">Chưa có ghim nào trên trang này.<br>Chạm vào bản vẽ để bắt đầu.</div>';
+    pinList.innerHTML = `<div class="empty-list">${t('pinListEmpty')}</div>`;
     return;
   }
   pinList.innerHTML = '';
@@ -647,11 +799,11 @@ function renderPinList(){
     card.className = 'pin-card' + (p.id===activePinId ? ' active' : '');
     const thumbStyle = p.photos.length ? `background-image:url('${p.photos[0].dataUrl}')` : '';
     card.innerHTML = `
-      <div class="thumb" style="${thumbStyle}">${p.photos.length ? '' : 'Chưa có ảnh'}</div>
+      <div class="thumb" style="${thumbStyle}">${p.photos.length ? '' : t('noPhoto')}</div>
       <div class="meta">
-        <div class="row1">GHIM #${p.number}</div>
-        <div class="label">${p.label ? escapeHtml(p.label) : '(Chưa đặt tên)'}</div>
-        <div class="sub">${p.photos.length} ảnh</div>
+        <div class="row1">${t('pinLabelPrefix')}${p.number}</div>
+        <div class="label">${p.label ? escapeHtml(p.label) : t('noName')}</div>
+        <div class="sub">${p.photos.length} ${t('photosSuffix')}</div>
       </div>`;
     card.addEventListener('click', ()=>openPinModal(p.id));
     pinList.appendChild(card);
@@ -717,11 +869,17 @@ function renderPhotoGrid(){
     });
     photoGrid.appendChild(tile);
   });
-  const addTile = document.createElement('button');
-  addTile.className = 'add-photo-tile';
-  addTile.innerHTML = '<span class="plus">＋</span><span>Chụp / thêm ảnh</span>';
-  addTile.addEventListener('click', ()=>photoInput.click());
-  photoGrid.appendChild(addTile);
+  const camTile = document.createElement('button');
+  camTile.className = 'add-photo-tile';
+  camTile.innerHTML = `<span class="plus">＋</span><span>${t('addPhoto')}</span>`;
+  camTile.addEventListener('click', openCamera);
+  photoGrid.appendChild(camTile);
+
+  const uploadTile = document.createElement('button');
+  uploadTile.className = 'add-photo-tile';
+  uploadTile.innerHTML = `<span class="plus">🖼️</span><span>${t('addPhotoUpload')}</span>`;
+  uploadTile.addEventListener('click', ()=>photoInput.click());
+  photoGrid.appendChild(uploadTile);
 }
 
 photoInput.addEventListener('change', async (e)=>{
@@ -747,6 +905,70 @@ function fileToDataUrl(file){
 
 document.getElementById('closeModal').addEventListener('click', closeModal);
 document.getElementById('doneBtn').addEventListener('click', closeModal);
+
+// ---------- Continuous camera capture ----------
+const cameraModal = document.getElementById('cameraModal');
+const cameraVideo = document.getElementById('cameraVideo');
+const cameraCanvas = document.getElementById('cameraCanvas');
+const cameraShotCount = document.getElementById('cameraShotCount');
+const cameraFilmstrip = document.getElementById('cameraFilmstrip');
+let cameraStream = null;
+let shotsThisSession = 0;
+
+async function openCamera(){
+  try{
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: {ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} },
+      audio: false
+    });
+    cameraVideo.srcObject = cameraStream;
+    shotsThisSession = 0;
+    cameraShotCount.textContent = '0';
+    cameraFilmstrip.innerHTML = '';
+    cameraModal.classList.remove('hidden');
+  }catch(err){
+    showToast(t('toastCameraError'));
+    photoInput.click(); // fallback to native picker (lets user pick camera or library)
+  }
+}
+
+function closeCamera(){
+  if(cameraStream){
+    cameraStream.getTracks().forEach(track=>track.stop());
+    cameraStream = null;
+  }
+  cameraModal.classList.add('hidden');
+  renderPhotoGrid();
+  redrawPins();
+}
+
+document.getElementById('cameraClose').addEventListener('click', closeCamera);
+document.getElementById('cameraDoneBtn').addEventListener('click', closeCamera);
+
+document.getElementById('cameraShutterBtn').addEventListener('click', ()=>{
+  const pin = currentEditingPin();
+  if(!pin || !cameraVideo.videoWidth) return;
+  cameraCanvas.width = cameraVideo.videoWidth;
+  cameraCanvas.height = cameraVideo.videoHeight;
+  const ctx = cameraCanvas.getContext('2d');
+  ctx.drawImage(cameraVideo, 0, 0, cameraCanvas.width, cameraCanvas.height);
+  const dataUrl = cameraCanvas.toDataURL('image/jpeg', 0.86);
+  pin.photos.push({id:'ph_'+Date.now()+Math.random().toString(36).slice(2,6), dataUrl});
+
+  shotsThisSession++;
+  cameraShotCount.textContent = shotsThisSession;
+  const thumb = document.createElement('img');
+  thumb.src = dataUrl;
+  cameraFilmstrip.appendChild(thumb);
+  cameraFilmstrip.scrollLeft = cameraFilmstrip.scrollWidth;
+
+  // flash effect
+  const flash = document.createElement('div');
+  flash.className = 'flash go';
+  document.querySelector('.camera-wrap').appendChild(flash);
+  setTimeout(()=>flash.remove(), 260);
+});
+
 function closeModal(){
   const pin = currentEditingPin();
   if(pin){
@@ -766,7 +988,7 @@ document.getElementById('deletePinBtn').addEventListener('click', ()=>{
   pinModal.classList.add('hidden');
   activePinId = null;
   redrawPins();
-  showToast('Đã xoá ghim');
+  showToast(t('toastPinDeleted'));
 });
 
 pinModal.addEventListener('click', (e)=>{ if(e.target === pinModal) closeModal(); });
@@ -782,7 +1004,7 @@ lightbox.addEventListener('click', (e)=>{ if(e.target===lightbox) lightbox.class
 
 // ---------- Export / Import JSON ----------
 document.getElementById('exportJsonBtn').addEventListener('click', ()=>{
-  if(pins.length === 0){ showToast('Chưa có dữ liệu để lưu'); return; }
+  if(pins.length === 0){ showToast(t('toastNoData')); return; }
   const data = JSON.stringify({pins, savedAt: new Date().toISOString()});
   const blob = new Blob([data], {type:'application/json'});
   const url = URL.createObjectURL(blob);
@@ -790,7 +1012,7 @@ document.getElementById('exportJsonBtn').addEventListener('click', ()=>{
   a.href = url; a.download = 'khao-sat-anh-' + Date.now() + '.json';
   a.click();
   URL.revokeObjectURL(url);
-  showToast('Đã lưu file dữ liệu');
+  showToast(t('toastSaved'));
 });
 
 document.getElementById('importJsonBtn').addEventListener('click', ()=>document.getElementById('importJsonInput').click());
@@ -803,15 +1025,15 @@ document.getElementById('importJsonInput').addEventListener('change', async (e)=
     pins = data.pins || [];
     nextPinNumber = pins.reduce((m,p)=>Math.max(m, p.number+1), 1);
     redrawPins();
-    showToast('Đã nạp lại dữ liệu (' + pins.length + ' ghim)');
+    showToast(t('toastLoaded')(pins.length));
   }catch(err){
-    showToast('File dữ liệu không hợp lệ');
+    showToast(t('toastInvalid'));
   }
 });
 
 // ---------- Print report ----------
 document.getElementById('printBtn').addEventListener('click', ()=>{
-  if(pins.length === 0){ showToast('Chưa có ghim nào để xuất báo cáo'); window.print(); return; }
+  if(pins.length === 0){ showToast(t('toastNoPinForReport')); window.print(); return; }
   const root = document.getElementById('reportRoot');
   root.innerHTML = '';
   const pagesUsed = [...new Set(pins.map(p=>p.page))].sort((a,b)=>a-b);
@@ -820,8 +1042,8 @@ document.getElementById('printBtn').addEventListener('click', ()=>{
     pagePins.forEach(p=>{
       const block = document.createElement('div');
       block.className = 'report-photo-block';
-      block.innerHTML = `<h4>Trang ${pageNum} — GHIM #${p.number} ${p.label ? '— ' + escapeHtml(p.label) : ''}</h4>
-        <div class="report-photo-grid">${p.photos.map(ph=>`<img src="${ph.dataUrl}">`).join('') || '<p style="color:#888;font-size:12px;">Không có ảnh</p>'}</div>`;
+      block.innerHTML = `<h4>${t('reportPage')(pageNum)} — ${t('pinLabelPrefix')}${p.number} ${p.label ? '— ' + escapeHtml(p.label) : ''}</h4>
+        <div class="report-photo-grid">${p.photos.map(ph=>`<img src="${ph.dataUrl}">`).join('') || `<p style="color:#888;font-size:12px;">${t('reportNoPhoto')}</p>`}</div>`;
       root.appendChild(block);
     });
   });
@@ -829,6 +1051,8 @@ document.getElementById('printBtn').addEventListener('click', ()=>{
 });
 
 window.addEventListener('resize', ()=>{ if(pdfDoc) renderPage(); });
+
+applyLanguage();
 
 // ---------- Offline support (Service Worker) ----------
 if('serviceWorker' in navigator){
