@@ -133,10 +133,17 @@
   .stage-wrap{
     flex:1;
     overflow:auto;
+    -webkit-overflow-scrolling:touch;
+    position:relative;
     display:flex;
     align-items:flex-start;
     justify-content:center;
     padding:28px;
+    touch-action:pan-x pan-y;
+  }
+  .zoom-sizer{
+    position:relative;
+    margin:auto;
   }
   .stage{
     position:relative;
@@ -145,6 +152,7 @@
     border-radius:2px;
     cursor:crosshair;
     line-height:0;
+    transform-origin:0 0;
   }
   .stage canvas{display:block;max-width:none;}
   .stage.empty{
@@ -553,6 +561,33 @@
     margin:12px 0 0;
     font-family:'IBM Plex Mono',monospace;
   }
+
+  /* ---------- Zoom controls ---------- */
+  .zoom-controls{
+    position:absolute;
+    right:20px;
+    bottom:20px;
+    background:var(--panel);
+    border:1px solid var(--panel-line);
+    border-radius:10px;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    box-shadow:0 10px 30px rgba(0,0,0,.4);
+    z-index:20;
+  }
+  .zoom-controls button{
+    border-radius:0;
+    background:transparent;
+    color:var(--paper);
+    padding:10px 14px;
+    font-size:15px;
+    justify-content:center;
+    border-bottom:1px solid var(--panel-line);
+  }
+  .zoom-controls button:last-child{border-bottom:none;}
+  .zoom-controls button:hover{background:var(--navy-mid);}
+  #zoomResetBtn{font-size:11px;}
 </style>
 </head>
 <body>
@@ -587,13 +622,20 @@
 </header>
 
 <div class="layout">
-  <div class="stage-wrap">
-    <div id="stage" class="stage empty">
-      <div class="empty-msg">
-        <span class="glyph">🗺️</span>
-        <h2 id="emptyTitleText">図面が読み込まれていません</h2>
-        <p id="emptyDescText">現場の図面PDFをアップロードしてください。その後、図面上の任意の位置をタップするとピンを立て、その場所の写真を添付できます。</p>
+  <div class="stage-wrap" id="stageWrap">
+    <div class="zoom-sizer" id="zoomSizer">
+      <div id="stage" class="stage empty">
+        <div class="empty-msg">
+          <span class="glyph">🗺️</span>
+          <h2 id="emptyTitleText">図面が読み込まれていません</h2>
+          <p id="emptyDescText">現場の図面PDFをアップロードしてください。その後、図面上の任意の位置をタップするとピンを立て、その場所の写真を添付できます。</p>
+        </div>
       </div>
+    </div>
+    <div class="zoom-controls" id="zoomControls" style="display:none;">
+      <button id="zoomInBtn">＋</button>
+      <button id="zoomResetBtn" class="mono"><span id="zoomPct">100%</span></button>
+      <button id="zoomOutBtn">－</button>
     </div>
   </div>
 
@@ -812,8 +854,15 @@ let pins = [];          // {id, page, xPct, yPct, label, photos:[{id,dataUrl}]}
 let activePinId = null;
 let pendingClick = null; // {xPct,yPct} while creating a new pin
 let nextPinNumber = 1;
+let zoomLevel = 1;
+let stageBaseWidth = 0;
+let stageBaseHeight = 0;
 
 const stage = document.getElementById('stage');
+const stageWrap = document.getElementById('stageWrap');
+const zoomSizer = document.getElementById('zoomSizer');
+const zoomControls = document.getElementById('zoomControls');
+const zoomPct = document.getElementById('zoomPct');
 const pagebar = document.getElementById('pagebar');
 const pageLabel = document.getElementById('pageLabel');
 const pinList = document.getElementById('pinList');
@@ -866,9 +915,84 @@ async function renderPage(){
 
   pageLabel.textContent = currentPage + ' / ' + totalPages;
 
+  stageBaseWidth = viewport.width;
+  stageBaseHeight = viewport.height;
+  zoomLevel = 1;
+  applyZoom();
+  zoomControls.style.display = 'flex';
+
   stage.addEventListener('click', onStageClick);
   redrawPins();
 }
+
+// ---------- Zoom ----------
+function applyZoom(){
+  stage.style.transform = 'scale(' + zoomLevel + ')';
+  zoomSizer.style.width = (stageBaseWidth * zoomLevel) + 'px';
+  zoomSizer.style.height = (stageBaseHeight * zoomLevel) + 'px';
+  zoomPct.textContent = Math.round(zoomLevel * 100) + '%';
+}
+
+function setZoom(newZoom, focalClientX, focalClientY){
+  newZoom = Math.min(4, Math.max(0.5, newZoom));
+  if(focalClientX !== undefined){
+    // keep the point under the finger/cursor stable while zooming
+    const wrapRect = stageWrap.getBoundingClientRect();
+    const scrollX = stageWrap.scrollLeft + (focalClientX - wrapRect.left);
+    const scrollY = stageWrap.scrollTop + (focalClientY - wrapRect.top);
+    const ratio = newZoom / zoomLevel;
+    zoomLevel = newZoom;
+    applyZoom();
+    stageWrap.scrollLeft = scrollX * ratio - (focalClientX - wrapRect.left);
+    stageWrap.scrollTop = scrollY * ratio - (focalClientY - wrapRect.top);
+  }else{
+    zoomLevel = newZoom;
+    applyZoom();
+  }
+}
+
+document.getElementById('zoomInBtn').addEventListener('click', ()=>setZoom(zoomLevel + 0.25));
+document.getElementById('zoomOutBtn').addEventListener('click', ()=>setZoom(zoomLevel - 0.25));
+document.getElementById('zoomResetBtn').addEventListener('click', ()=>setZoom(1));
+
+// Mouse wheel zoom (desktop) — hold Ctrl/Cmd or just scroll with wheel over the plan
+stageWrap.addEventListener('wheel', (e)=>{
+  if(!pdfDoc) return;
+  if(!(e.ctrlKey || e.metaKey)) return; // avoid hijacking normal page scroll
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? -0.15 : 0.15;
+  setZoom(zoomLevel + delta, e.clientX, e.clientY);
+}, {passive:false});
+
+// Pinch-to-zoom (touch)
+let pinchStartDist = null;
+let pinchStartZoom = 1;
+stageWrap.addEventListener('touchstart', (e)=>{
+  if(e.touches.length === 2){
+    pinchStartDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    pinchStartZoom = zoomLevel;
+  }
+}, {passive:true});
+
+stageWrap.addEventListener('touchmove', (e)=>{
+  if(e.touches.length === 2 && pinchStartDist){
+    e.preventDefault();
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    setZoom(pinchStartZoom * (dist / pinchStartDist), midX, midY);
+  }
+}, {passive:false});
+
+stageWrap.addEventListener('touchend', (e)=>{
+  if(e.touches.length < 2) pinchStartDist = null;
+});
 
 function onStageClick(e){
   const rect = stage.getBoundingClientRect();
@@ -1027,6 +1151,7 @@ let audioCtx = null;
 function playShutterSound(){
   try{
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === 'suspended'){ audioCtx.resume(); }
     const now = audioCtx.currentTime;
     // quick high "click" (shutter open)
     const osc1 = audioCtx.createOscillator();
@@ -1052,6 +1177,10 @@ function playShutterSound(){
 }
 
 async function openCamera(){
+  try{
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === 'suspended'){ audioCtx.resume(); }
+  }catch(e){}
   try{
     cameraStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: {ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} },
