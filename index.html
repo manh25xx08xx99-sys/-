@@ -509,9 +509,64 @@
   }
   .flash.go{animation:flashpop .25s ease;}
   @keyframes flashpop{0%{opacity:.85;}100%{opacity:0;}}
+
+  /* ---------- Lock screen ---------- */
+  .lock-overlay{
+    position:fixed;inset:0;z-index:500;
+    display:flex;align-items:center;justify-content:center;
+    padding:20px;
+    background:
+      linear-gradient(var(--grid-line) 1px, transparent 1px) 0 0/28px 28px,
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px) 0 0/28px 28px,
+      var(--navy-deep);
+  }
+  .lock-card{
+    width:min(340px,100%);
+    background:var(--panel);
+    border:1px solid var(--panel-line);
+    border-radius:16px;
+    padding:30px 26px 26px;
+    text-align:center;
+    box-shadow:0 30px 60px rgba(0,0,0,.5);
+  }
+  .lock-icon{font-size:32px;margin-bottom:10px;}
+  .lock-card h2{margin:0 0 6px;font-size:16px;font-weight:600;}
+  .lock-card p{margin:0 0 18px;font-size:12.5px;color:#9FB2CC;}
+  .lock-card input[type=password]{
+    width:100%;
+    background:var(--navy-mid);
+    border:1px solid var(--panel-line);
+    color:var(--paper);
+    border-radius:8px;
+    padding:12px 14px;
+    font-size:16px;
+    text-align:center;
+    letter-spacing:.1em;
+    font-family:'IBM Plex Mono',monospace;
+    margin-bottom:12px;
+  }
+  .lock-card input[type=password]:focus{outline:none;border-color:var(--accent);}
+  .lock-card button{width:100%;justify-content:center;margin-top:2px;}
+  .lock-error{
+    color:var(--danger);
+    font-size:12px;
+    margin:12px 0 0;
+    font-family:'IBM Plex Mono',monospace;
+  }
 </style>
 </head>
 <body>
+
+<div class="lock-overlay" id="lockOverlay">
+  <div class="lock-card">
+    <div class="lock-icon">🔒</div>
+    <h2 id="lockTitleText">アクセス制限</h2>
+    <p id="lockDescText">パスワードを入力してください</p>
+    <input type="password" id="lockPasswordInput" inputmode="text" autocomplete="off" placeholder="••••••••">
+    <button class="btn-primary" id="lockSubmitBtn">確認</button>
+    <p class="lock-error hidden" id="lockErrorText">パスワードが正しくありません</p>
+  </div>
+</div>
 
 <header>
   <div class="brand">
@@ -619,6 +674,53 @@
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
+// ---------- Password lock ----------
+// Change PASSWORD_HASH below to update the password — anyone who unlocked
+// with the OLD hash will automatically be asked again, since the app
+// compares against this new value on every load.
+const PASSWORD_HASH = '9e969b4632bfd5f5e866c4806864a0f6c5baddfa0f52cdce4f33bef930720ef7'; // asahi0309
+const AUTH_STORAGE_KEY = 'khaosat_authhash_v1';
+
+async function sha256Hex(text){
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+const lockOverlay = document.getElementById('lockOverlay');
+const lockPasswordInput = document.getElementById('lockPasswordInput');
+const lockSubmitBtn = document.getElementById('lockSubmitBtn');
+const lockErrorText = document.getElementById('lockErrorText');
+
+function unlockApp(){
+  lockOverlay.classList.add('hidden');
+}
+
+async function attemptUnlock(){
+  const pw = lockPasswordInput.value;
+  const hash = await sha256Hex(pw);
+  if(hash === PASSWORD_HASH){
+    localStorage.setItem(AUTH_STORAGE_KEY, PASSWORD_HASH);
+    lockErrorText.classList.add('hidden');
+    lockPasswordInput.value = '';
+    unlockApp();
+  }else{
+    lockErrorText.classList.remove('hidden');
+    lockPasswordInput.value = '';
+    lockPasswordInput.focus();
+  }
+}
+
+lockSubmitBtn.addEventListener('click', attemptUnlock);
+lockPasswordInput.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') attemptUnlock(); });
+
+// If this device already unlocked with the CURRENT password before, skip the prompt.
+if(localStorage.getItem(AUTH_STORAGE_KEY) === PASSWORD_HASH){
+  unlockApp();
+}else{
+  setTimeout(()=>lockPasswordInput.focus(), 200);
+}
+
 // ---------- i18n ----------
 const I18N = {
   ja: {
@@ -639,7 +741,8 @@ const I18N = {
     toastLoaded:(n)=>`データを読み込みました（${n}件のピン）`, toastInvalid:'データファイルが無効です',
     toastNoPinForReport:'レポートに出力できるピンがありません',
     toastCameraError:'カメラを起動できません。「ライブラリから選択」をご利用ください。',
-    reportPage:(n)=>`${n}ページ目`, reportNoPhoto:'写真なし', langBtn:'🌐 VI'
+    reportPage:(n)=>`${n}ページ目`, reportNoPhoto:'写真なし', langBtn:'🌐 VI',
+    lockTitle:'アクセス制限', lockDesc:'パスワードを入力してください', lockSubmit:'確認', lockError:'パスワードが正しくありません'
   },
   vi: {
     tag:'KHẢO SÁT', title:'Sơ đồ ảnh công trình', subtitle:'PDF mặt bằng · ghim vị trí · gắn ảnh',
@@ -659,7 +762,8 @@ const I18N = {
     toastLoaded:(n)=>`Đã nạp lại dữ liệu (${n} ghim)`, toastInvalid:'File dữ liệu không hợp lệ',
     toastNoPinForReport:'Chưa có ghim nào để xuất báo cáo',
     toastCameraError:'Không thể mở camera. Vui lòng dùng "Chọn từ thư viện".',
-    reportPage:(n)=>`Trang ${n}`, reportNoPhoto:'Không có ảnh', langBtn:'🌐 日本語'
+    reportPage:(n)=>`Trang ${n}`, reportNoPhoto:'Không có ảnh', langBtn:'🌐 日本語',
+    lockTitle:'Khu vực giới hạn', lockDesc:'Vui lòng nhập mật khẩu', lockSubmit:'Xác nhận', lockError:'Mật khẩu không đúng'
   }
 };
 let currentLang = 'ja';
@@ -687,6 +791,10 @@ function applyLanguage(){
   document.getElementById('cameraHintText').textContent = t('cameraHint');
   document.getElementById('cameraDoneBtn').textContent = t('cameraDone');
   document.getElementById('langToggle').textContent = t('langBtn');
+  document.getElementById('lockTitleText').textContent = t('lockTitle');
+  document.getElementById('lockDescText').textContent = t('lockDesc');
+  document.getElementById('lockSubmitBtn').textContent = t('lockSubmit');
+  document.getElementById('lockErrorText').textContent = t('lockError');
   redrawPins();
   if(!pinModal.classList.contains('hidden')) renderPhotoGrid();
 }
