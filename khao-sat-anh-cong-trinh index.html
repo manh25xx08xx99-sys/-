@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Sơ đồ ảnh khảo sát công trình</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root{
+    --navy-deep:#0B2545;
+    --navy-mid:#123363;
+    --grid-line:rgba(140,180,230,0.18);
+    --paper:#F5F3EC;
+    --ink:#0B2545;
+    --ink-soft:#5A6B87;
+    --accent:#FF6B35;
+    --accent-dim:#C9502099;
+    --panel:#0E2C54;
+    --panel-line:#274975;
+    --ok:#3FA97E;
+    --danger:#E6544A;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    font-family:'IBM Plex Sans',sans-serif;
+    background:
+      linear-gradient(var(--grid-line) 1px, transparent 1px) 0 0/28px 28px,
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px) 0 0/28px 28px,
+      var(--navy-deep);
+    color:var(--paper);
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+  }
+  .mono{font-family:'IBM Plex Mono',monospace;}
+
+  /* ---------- Header ---------- */
+  header{
+    display:flex;
+    align-items:center;
+    gap:16px;
+    padding:14px 20px;
+    background:var(--panel);
+    border-bottom:1px solid var(--panel-line);
+    flex-wrap:wrap;
+    position:sticky;
+    top:0;
+    z-index:40;
+  }
+  .brand{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+    margin-right:auto;
+  }
+  .brand .tag{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    letter-spacing:.14em;
+    color:var(--accent);
+    border:1px solid var(--accent-dim);
+    padding:3px 7px;
+    border-radius:4px;
+  }
+  .brand h1{
+    font-size:16px;
+    margin:0;
+    font-weight:600;
+    letter-spacing:.01em;
+  }
+  .brand h1 small{
+    display:block;
+    font-size:11px;
+    font-weight:400;
+    color:#9FB2CC;
+    font-family:'IBM Plex Mono',monospace;
+    letter-spacing:.05em;
+    margin-top:2px;
+  }
+  button{
+    font-family:'IBM Plex Sans',sans-serif;
+    cursor:pointer;
+    border:none;
+    border-radius:7px;
+    font-size:13px;
+    font-weight:600;
+    padding:9px 14px;
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    transition:transform .12s ease, filter .12s ease;
+  }
+  button:active{transform:scale(0.97);}
+  .btn-primary{background:var(--accent);color:#1A0B02;}
+  .btn-primary:hover{filter:brightness(1.08);}
+  .btn-ghost{background:transparent;color:var(--paper);border:1px solid var(--panel-line);}
+  .btn-ghost:hover{border-color:#5A80B8;}
+  .btn-sm{padding:6px 10px;font-size:12px;border-radius:6px;}
+  input[type=file]{display:none;}
+  .pagebar{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    color:#C7D5EA;
+  }
+  .pagebar button{padding:6px 10px;background:var(--navy-mid);color:var(--paper);border:1px solid var(--panel-line);}
+  .pagebar button:disabled{opacity:.35;cursor:not-allowed;}
+
+  /* ---------- Layout ---------- */
+  .layout{
+    flex:1;
+    display:flex;
+    min-height:0;
+  }
+  .stage-wrap{
+    flex:1;
+    overflow:auto;
+    display:flex;
+    align-items:flex-start;
+    justify-content:center;
+    padding:28px;
+  }
+  .stage{
+    position:relative;
+    background:var(--paper);
+    box-shadow:0 20px 50px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.06);
+    border-radius:2px;
+    cursor:crosshair;
+    line-height:0;
+  }
+  .stage canvas{display:block;max-width:none;}
+  .stage.empty{
+    width:min(720px,86vw);
+    height:min(520px,60vh);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:default;
+    border:1.5px dashed var(--panel-line);
+    background:transparent;
+    box-shadow:none;
+    border-radius:var(--radius);
+  }
+  .empty-msg{
+    text-align:center;
+    color:#8FA4C4;
+    max-width:340px;
+    padding:20px;
+  }
+  .empty-msg .glyph{
+    font-size:34px;
+    display:block;
+    margin-bottom:10px;
+    filter:grayscale(1) opacity(.7);
+  }
+  .empty-msg h2{font-size:15px;color:var(--paper);margin:0 0 8px;font-weight:600;}
+  .empty-msg p{font-size:12.5px;line-height:1.55;margin:0;}
+
+  .pin{
+    position:absolute;
+    transform:translate(-50%,-100%);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    cursor:pointer;
+    z-index:10;
+    user-select:none;
+  }
+  .pin .dot{
+    width:26px;height:26px;
+    border-radius:50% 50% 50% 0;
+    background:var(--accent);
+    border:2px solid #1A0B02;
+    transform:rotate(-45deg);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 3px 8px rgba(0,0,0,.35);
+    transition:transform .12s ease, filter .12s ease;
+  }
+  .pin .num{
+    transform:rotate(45deg);
+    font-family:'IBM Plex Mono',monospace;
+    font-weight:700;
+    font-size:11px;
+    color:#1A0B02;
+  }
+  .pin:hover .dot, .pin.active .dot{transform:rotate(-45deg) scale(1.15);filter:brightness(1.1);}
+  .pin.active .dot{background:var(--ok);}
+  .pin .photocount{
+    position:absolute;
+    top:-6px;
+    right:-8px;
+    background:var(--navy-deep);
+    color:var(--paper);
+    font-family:'IBM Plex Mono',monospace;
+    font-size:9px;
+    font-weight:700;
+    border-radius:8px;
+    padding:1px 5px;
+    border:1px solid var(--panel-line);
+  }
+
+  .ghost-pin{
+    position:absolute;
+    width:26px;height:26px;
+    border-radius:50% 50% 50% 0;
+    border:2px dashed var(--accent);
+    transform:translate(-50%,-100%) rotate(-45deg);
+    pointer-events:none;
+    z-index:9;
+  }
+
+  /* ---------- Sidebar ---------- */
+  aside{
+    width:320px;
+    flex-shrink:0;
+    background:var(--panel);
+    border-left:1px solid var(--panel-line);
+    display:flex;
+    flex-direction:column;
+    min-height:0;
+  }
+  .aside-head{
+    padding:14px 16px 10px;
+    border-bottom:1px solid var(--panel-line);
+  }
+  .aside-head h3{
+    margin:0 0 2px;
+    font-size:13px;
+    font-weight:600;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .aside-head .count{
+    font-family:'IBM Plex Mono',monospace;
+    color:var(--accent);
+    font-size:12px;
+  }
+  .aside-head p{margin:4px 0 0;font-size:11.5px;color:#8FA4C4;}
+  .pin-list{
+    flex:1;
+    overflow-y:auto;
+    padding:10px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .pin-card{
+    background:var(--navy-mid);
+    border:1px solid var(--panel-line);
+    border-radius:var(--radius);
+    padding:10px;
+    display:flex;
+    gap:10px;
+    cursor:pointer;
+    transition:border-color .12s ease, background .12s ease;
+  }
+  .pin-card:hover{border-color:var(--accent-dim);}
+  .pin-card.active{border-color:var(--accent);background:#173765;}
+  .pin-card .thumb{
+    width:52px;height:52px;
+    border-radius:6px;
+    background:#0A1F3C center/cover no-repeat;
+    flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px;
+    color:#5A80B8;
+    border:1px solid var(--panel-line);
+  }
+  .pin-card .meta{min-width:0;flex:1;}
+  .pin-card .meta .row1{
+    display:flex;align-items:center;gap:6px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;color:var(--accent);font-weight:700;
+  }
+  .pin-card .meta .label{
+    font-size:13px;font-weight:600;margin-top:2px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .pin-card .meta .sub{font-size:11px;color:#8FA4C4;margin-top:2px;}
+  .empty-list{
+    padding:30px 16px;text-align:center;color:#6F86A8;font-size:12.5px;line-height:1.6;
+  }
+  .aside-foot{
+    padding:12px 16px;
+    border-top:1px solid var(--panel-line);
+    display:flex;
+    gap:8px;
+  }
+  .aside-foot button{flex:1;justify-content:center;}
+
+  /* ---------- Modal ---------- */
+  .overlay{
+    position:fixed;inset:0;
+    background:rgba(4,12,26,.72);
+    backdrop-filter:blur(2px);
+    display:flex;align-items:center;justify-content:center;
+    z-index:100;
+    padding:20px;
+  }
+  .hidden{display:none !important;}
+  .modal{
+    background:var(--panel);
+    border:1px solid var(--panel-line);
+    border-radius:14px;
+    width:min(460px,100%);
+    max-height:88vh;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    box-shadow:0 30px 60px rgba(0,0,0,.5);
+  }
+  .modal-head{
+    padding:16px 18px;
+    border-bottom:1px solid var(--panel-line);
+    display:flex;align-items:center;justify-content:space-between;
+  }
+  .modal-head .title{display:flex;align-items:center;gap:8px;}
+  .modal-head .badge{
+    font-family:'IBM Plex Mono',monospace;
+    background:var(--accent);color:#1A0B02;font-weight:700;
+    font-size:11px;padding:3px 8px;border-radius:6px;
+  }
+  .modal-head h3{margin:0;font-size:14px;font-weight:600;}
+  .icon-x{
+    background:transparent;border:none;color:#8FA4C4;font-size:18px;padding:4px 8px;border-radius:6px;
+  }
+  .icon-x:hover{color:var(--paper);background:var(--navy-mid);}
+  .modal-body{padding:16px 18px;overflow-y:auto;}
+  .field{margin-bottom:14px;}
+  .field label{
+    display:block;font-size:11.5px;font-weight:600;color:#9FB2CC;
+    margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em;
+  }
+  .field input[type=text]{
+    width:100%;
+    background:var(--navy-mid);
+    border:1px solid var(--panel-line);
+    color:var(--paper);
+    border-radius:7px;
+    padding:9px 11px;
+    font-size:13.5px;
+    font-family:'IBM Plex Sans',sans-serif;
+  }
+  .field input[type=text]:focus{outline:none;border-color:var(--accent);}
+  .photo-grid{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:8px;
+    margin-top:8px;
+  }
+  .photo-tile{
+    position:relative;
+    aspect-ratio:1;
+    border-radius:8px;
+    overflow:hidden;
+    border:1px solid var(--panel-line);
+  }
+  .photo-tile img{width:100%;height:100%;object-fit:cover;display:block;}
+  .photo-tile .del{
+    position:absolute;top:3px;right:3px;
+    width:20px;height:20px;border-radius:50%;
+    background:rgba(10,20,40,.75);color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-size:12px;border:none;padding:0;
+  }
+  .add-photo-tile{
+    aspect-ratio:1;border-radius:8px;
+    border:1.5px dashed var(--panel-line);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:4px;color:#8FA4C4;cursor:pointer;font-size:10.5px;text-align:center;
+    background:transparent;
+  }
+  .add-photo-tile:hover{border-color:var(--accent);color:var(--paper);}
+  .add-photo-tile .plus{font-size:20px;line-height:1;}
+  .modal-foot{
+    padding:14px 18px;
+    border-top:1px solid var(--panel-line);
+    display:flex;
+    gap:10px;
+  }
+  .modal-foot .btn-danger{background:transparent;color:var(--danger);border:1px solid #E6544A55;}
+  .modal-foot .btn-danger:hover{background:#E6544A18;}
+  .modal-foot .spacer{flex:1;}
+
+  /* lightbox */
+  .lightbox{
+    position:fixed;inset:0;z-index:200;background:rgba(4,10,22,.92);
+    display:flex;align-items:center;justify-content:center;padding:30px;
+  }
+  .lightbox img{max-width:100%;max-height:100%;border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,.6);}
+  .lightbox .close{position:absolute;top:18px;right:22px;font-size:26px;background:none;border:none;color:#fff;}
+
+  /* toast */
+  .toast{
+    position:fixed;bottom:22px;left:50%;transform:translateX(-50%);
+    background:var(--navy-mid);border:1px solid var(--panel-line);
+    color:var(--paper);padding:10px 18px;border-radius:30px;
+    font-size:12.5px;font-family:'IBM Plex Mono',monospace;
+    box-shadow:0 10px 30px rgba(0,0,0,.4);
+    z-index:300;
+    opacity:0;pointer-events:none;transition:opacity .25s ease, transform .25s ease;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-6px);}
+
+  @media(max-width:860px){
+    .layout{flex-direction:column;}
+    aside{width:100%;border-left:none;border-top:1px solid var(--panel-line);max-height:38vh;}
+    .stage-wrap{padding:14px;}
+  }
+
+  /* Print report */
+  @media print{
+    body{background:#fff;color:#000;}
+    header, aside, .stage.empty{display:none !important;}
+    .layout{display:block;}
+    .stage-wrap{padding:0;display:block;}
+    .stage{box-shadow:none;}
+    .report-only{display:block !important;}
+  }
+  .report-only{display:none;}
+  .report-photo-block{
+    margin-top:22px;
+    page-break-inside:avoid;
+  }
+  .report-photo-block h4{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    color:#000;
+    border-bottom:1px solid #ccc;
+    padding-bottom:4px;
+  }
+  .report-photo-grid{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;
+  }
+  .report-photo-grid img{width:100%;border-radius:4px;border:1px solid #ccc;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="tag">KHẢO SÁT</span>
+    <h1>Sơ đồ ảnh công trình<small>PDF mặt bằng · ghim vị trí · gắn ảnh</small></h1>
+  </div>
+
+  <div class="pagebar" id="pagebar" style="display:none;">
+    <button id="prevPage">‹</button>
+    <span id="pageLabel" class="mono">1 / 1</span>
+    <button id="nextPage">›</button>
+  </div>
+
+  <input type="file" id="pdfInput" accept="application/pdf">
+  <button class="btn-ghost" id="loadPdfBtn">📄 Tải file PDF mặt bằng</button>
+  <button class="btn-primary" id="printBtn" style="display:none;">🖨️ Xuất báo cáo</button>
+</header>
+
+<div class="layout">
+  <div class="stage-wrap">
+    <div id="stage" class="stage empty">
+      <div class="empty-msg">
+        <span class="glyph">🗺️</span>
+        <h2>Chưa có bản vẽ mặt bằng</h2>
+        <p>Tải lên file PDF mặt bằng công trình. Sau đó chạm/click vào bất kỳ vị trí nào trên bản vẽ để ghim và gắn ảnh chụp tại vị trí đó.</p>
+      </div>
+    </div>
+  </div>
+
+  <aside>
+    <div class="aside-head">
+      <h3>Danh sách vị trí <span class="count mono" id="pinCount">0</span></h3>
+      <p>Chạm vào bản vẽ để thêm ghim mới</p>
+    </div>
+    <div class="pin-list" id="pinList">
+      <div class="empty-list">Chưa có ghim nào trên trang này.<br>Tải PDF rồi chạm vào bản vẽ để bắt đầu.</div>
+    </div>
+    <div class="aside-foot">
+      <button class="btn-ghost btn-sm" id="exportJsonBtn">⬇️ Lưu dữ liệu (.json)</button>
+      <input type="file" id="importJsonInput" accept="application/json" class="hidden">
+      <button class="btn-ghost btn-sm" id="importJsonBtn">⬆️ Nạp lại</button>
+    </div>
+  </aside>
+</div>
+
+<!-- Pin modal -->
+<div class="overlay hidden" id="pinModal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="title">
+        <span class="badge mono" id="modalPinNum">#1</span>
+        <h3>Vị trí khảo sát</h3>
+      </div>
+      <button class="icon-x" id="closeModal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Ghi chú vị trí</label>
+        <input type="text" id="pinLabel" placeholder="VD: Tường ngoài trục A - B, tầng 2">
+      </div>
+      <div class="field">
+        <label>Ảnh chụp <span id="photoCountLabel" class="mono" style="text-transform:none;color:#8FA4C4;"></span></label>
+        <div class="photo-grid" id="photoGrid"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-danger" id="deletePinBtn">🗑️ Xoá ghim</button>
+      <div class="spacer"></div>
+      <button class="btn-primary" id="doneBtn">Xong</button>
+    </div>
+  </div>
+  <input type="file" id="photoInput" accept="image/*" capture="environment" multiple class="hidden">
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox hidden" id="lightbox">
+  <button class="close" id="lightboxClose">✕</button>
+  <img id="lightboxImg" src="">
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Hidden print report -->
+<div class="report-only" id="reportRoot"></div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ---------- State ----------
+let pdfDoc = null;
+let currentPage = 1;
+let totalPages = 1;
+let pins = [];          // {id, page, xPct, yPct, label, photos:[{id,dataUrl}]}
+let activePinId = null;
+let pendingClick = null; // {xPct,yPct} while creating a new pin
+let nextPinNumber = 1;
+
+const stage = document.getElementById('stage');
+const pagebar = document.getElementById('pagebar');
+const pageLabel = document.getElementById('pageLabel');
+const pinList = document.getElementById('pinList');
+const pinCount = document.getElementById('pinCount');
+const toast = document.getElementById('toast');
+
+function showToast(msg){
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(()=>toast.classList.remove('show'), 2200);
+}
+
+// ---------- PDF loading ----------
+document.getElementById('loadPdfBtn').addEventListener('click', ()=>document.getElementById('pdfInput').click());
+document.getElementById('pdfInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const buf = await file.arrayBuffer();
+  pdfDoc = await pdfjsLib.getDocument({data: buf}).promise;
+  totalPages = pdfDoc.numPages;
+  currentPage = 1;
+  pagebar.style.display = totalPages > 1 ? 'flex' : 'none';
+  document.getElementById('printBtn').style.display = 'inline-flex';
+  await renderPage();
+  showToast('Đã tải bản vẽ: ' + file.name);
+});
+
+document.getElementById('prevPage').addEventListener('click', ()=>{ if(currentPage>1){currentPage--; renderPage();} });
+document.getElementById('nextPage').addEventListener('click', ()=>{ if(currentPage<totalPages){currentPage++; renderPage();} });
+
+async function renderPage(){
+  stage.classList.remove('empty');
+  stage.innerHTML = '';
+  const page = await pdfDoc.getPage(currentPage);
+  const containerWidth = Math.min(document.querySelector('.stage-wrap').clientWidth - 56, 1100);
+  const baseViewport = page.getViewport({scale:1});
+  const scale = containerWidth / baseViewport.width;
+  const viewport = page.getViewport({scale: Math.max(scale, 0.4)});
+
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  stage.appendChild(canvas);
+  stage.style.width = viewport.width + 'px';
+  stage.style.height = viewport.height + 'px';
+
+  const ctx = canvas.getContext('2d');
+  await page.render({canvasContext: ctx, viewport}).promise;
+
+  pageLabel.textContent = currentPage + ' / ' + totalPages;
+
+  stage.addEventListener('click', onStageClick);
+  redrawPins();
+}
+
+function onStageClick(e){
+  const rect = stage.getBoundingClientRect();
+  const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+  const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+  pendingClick = {xPct, yPct};
+  openPinModal(null);
+}
+
+// ---------- Pin rendering ----------
+function redrawPins(){
+  stage.querySelectorAll('.pin').forEach(p=>p.remove());
+  pins.filter(p=>p.page===currentPage).forEach(p=>{
+    const el = document.createElement('div');
+    el.className = 'pin' + (p.id===activePinId ? ' active' : '');
+    el.style.left = p.xPct + '%';
+    el.style.top = p.yPct + '%';
+    el.innerHTML = `<div class="dot"><span class="num">${p.number}</span></div>` +
+      (p.photos.length ? `<div class="photocount">${p.photos.length}</div>` : '');
+    el.addEventListener('click', (ev)=>{ ev.stopPropagation(); openPinModal(p.id); });
+    stage.appendChild(el);
+  });
+  renderPinList();
+}
+
+function renderPinList(){
+  const pagePins = pins.filter(p=>p.page===currentPage);
+  pinCount.textContent = pins.length;
+  if(pagePins.length === 0){
+    pinList.innerHTML = '<div class="empty-list">Chưa có ghim nào trên trang này.<br>Chạm vào bản vẽ để bắt đầu.</div>';
+    return;
+  }
+  pinList.innerHTML = '';
+  pagePins.forEach(p=>{
+    const card = document.createElement('div');
+    card.className = 'pin-card' + (p.id===activePinId ? ' active' : '');
+    const thumbStyle = p.photos.length ? `background-image:url('${p.photos[0].dataUrl}')` : '';
+    card.innerHTML = `
+      <div class="thumb" style="${thumbStyle}">${p.photos.length ? '' : 'Chưa có ảnh'}</div>
+      <div class="meta">
+        <div class="row1">GHIM #${p.number}</div>
+        <div class="label">${p.label ? escapeHtml(p.label) : '(Chưa đặt tên)'}</div>
+        <div class="sub">${p.photos.length} ảnh</div>
+      </div>`;
+    card.addEventListener('click', ()=>openPinModal(p.id));
+    pinList.appendChild(card);
+  });
+}
+
+function escapeHtml(s){
+  const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+}
+
+// ---------- Modal ----------
+const pinModal = document.getElementById('pinModal');
+const modalPinNum = document.getElementById('modalPinNum');
+const pinLabelInput = document.getElementById('pinLabel');
+const photoGrid = document.getElementById('photoGrid');
+const photoCountLabel = document.getElementById('photoCountLabel');
+const photoInput = document.getElementById('photoInput');
+
+let editingPinId = null;
+
+function openPinModal(pinId){
+  if(pinId === null){
+    // creating new pin
+    const p = {
+      id: 'pin_' + Date.now(),
+      number: nextPinNumber++,
+      page: currentPage,
+      xPct: pendingClick.xPct,
+      yPct: pendingClick.yPct,
+      label: '',
+      photos: []
+    };
+    pins.push(p);
+    editingPinId = p.id;
+  } else {
+    editingPinId = pinId;
+  }
+  activePinId = editingPinId;
+  const pin = pins.find(p=>p.id===editingPinId);
+  modalPinNum.textContent = '#' + pin.number;
+  pinLabelInput.value = pin.label;
+  renderPhotoGrid();
+  pinModal.classList.remove('hidden');
+  redrawPins();
+}
+
+function currentEditingPin(){ return pins.find(p=>p.id===editingPinId); }
+
+function renderPhotoGrid(){
+  const pin = currentEditingPin();
+  photoCountLabel.textContent = pin.photos.length ? `(${pin.photos.length})` : '';
+  photoGrid.innerHTML = '';
+  pin.photos.forEach(ph=>{
+    const tile = document.createElement('div');
+    tile.className = 'photo-tile';
+    tile.innerHTML = `<img src="${ph.dataUrl}"><button class="del" data-pid="${ph.id}">✕</button>`;
+    tile.querySelector('img').addEventListener('click', ()=>openLightbox(ph.dataUrl));
+    tile.querySelector('.del').addEventListener('click', (e)=>{
+      e.stopPropagation();
+      pin.photos = pin.photos.filter(x=>x.id !== ph.id);
+      renderPhotoGrid();
+      redrawPins();
+    });
+    photoGrid.appendChild(tile);
+  });
+  const addTile = document.createElement('button');
+  addTile.className = 'add-photo-tile';
+  addTile.innerHTML = '<span class="plus">＋</span><span>Chụp / thêm ảnh</span>';
+  addTile.addEventListener('click', ()=>photoInput.click());
+  photoGrid.appendChild(addTile);
+}
+
+photoInput.addEventListener('change', async (e)=>{
+  const files = Array.from(e.target.files);
+  const pin = currentEditingPin();
+  for(const file of files){
+    const dataUrl = await fileToDataUrl(file);
+    pin.photos.push({id:'ph_'+Date.now()+Math.random().toString(36).slice(2,6), dataUrl});
+  }
+  photoInput.value = '';
+  renderPhotoGrid();
+  redrawPins();
+});
+
+function fileToDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = ()=>resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+document.getElementById('closeModal').addEventListener('click', closeModal);
+document.getElementById('doneBtn').addEventListener('click', closeModal);
+function closeModal(){
+  const pin = currentEditingPin();
+  if(pin){
+    pin.label = pinLabelInput.value.trim();
+    if(pin.photos.length === 0 && pin.label === ''){
+      // discard empty pin created without any content
+      pins = pins.filter(p=>p.id !== pin.id);
+    }
+  }
+  pinModal.classList.add('hidden');
+  activePinId = null;
+  redrawPins();
+}
+
+document.getElementById('deletePinBtn').addEventListener('click', ()=>{
+  pins = pins.filter(p=>p.id !== editingPinId);
+  pinModal.classList.add('hidden');
+  activePinId = null;
+  redrawPins();
+  showToast('Đã xoá ghim');
+});
+
+pinModal.addEventListener('click', (e)=>{ if(e.target === pinModal) closeModal(); });
+
+// ---------- Lightbox ----------
+const lightbox = document.getElementById('lightbox');
+function openLightbox(src){
+  document.getElementById('lightboxImg').src = src;
+  lightbox.classList.remove('hidden');
+}
+document.getElementById('lightboxClose').addEventListener('click', ()=>lightbox.classList.add('hidden'));
+lightbox.addEventListener('click', (e)=>{ if(e.target===lightbox) lightbox.classList.add('hidden'); });
+
+// ---------- Export / Import JSON ----------
+document.getElementById('exportJsonBtn').addEventListener('click', ()=>{
+  if(pins.length === 0){ showToast('Chưa có dữ liệu để lưu'); return; }
+  const data = JSON.stringify({pins, savedAt: new Date().toISOString()});
+  const blob = new Blob([data], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'khao-sat-anh-' + Date.now() + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Đã lưu file dữ liệu');
+});
+
+document.getElementById('importJsonBtn').addEventListener('click', ()=>document.getElementById('importJsonInput').click());
+document.getElementById('importJsonInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const text = await file.text();
+  try{
+    const data = JSON.parse(text);
+    pins = data.pins || [];
+    nextPinNumber = pins.reduce((m,p)=>Math.max(m, p.number+1), 1);
+    redrawPins();
+    showToast('Đã nạp lại dữ liệu (' + pins.length + ' ghim)');
+  }catch(err){
+    showToast('File dữ liệu không hợp lệ');
+  }
+});
+
+// ---------- Print report ----------
+document.getElementById('printBtn').addEventListener('click', ()=>{
+  if(pins.length === 0){ showToast('Chưa có ghim nào để xuất báo cáo'); window.print(); return; }
+  const root = document.getElementById('reportRoot');
+  root.innerHTML = '';
+  const pagesUsed = [...new Set(pins.map(p=>p.page))].sort((a,b)=>a-b);
+  pagesUsed.forEach(pageNum=>{
+    const pagePins = pins.filter(p=>p.page===pageNum);
+    pagePins.forEach(p=>{
+      const block = document.createElement('div');
+      block.className = 'report-photo-block';
+      block.innerHTML = `<h4>Trang ${pageNum} — GHIM #${p.number} ${p.label ? '— ' + escapeHtml(p.label) : ''}</h4>
+        <div class="report-photo-grid">${p.photos.map(ph=>`<img src="${ph.dataUrl}">`).join('') || '<p style="color:#888;font-size:12px;">Không có ảnh</p>'}</div>`;
+      root.appendChild(block);
+    });
+  });
+  window.print();
+});
+
+window.addEventListener('resize', ()=>{ if(pdfDoc) renderPage(); });
+</script>
+</body>
+</html>
