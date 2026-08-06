@@ -1022,6 +1022,34 @@ const cameraShotCount = document.getElementById('cameraShotCount');
 const cameraFilmstrip = document.getElementById('cameraFilmstrip');
 let cameraStream = null;
 let shotsThisSession = 0;
+let audioCtx = null;
+
+function playShutterSound(){
+  try{
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const now = audioCtx.currentTime;
+    // quick high "click" (shutter open)
+    const osc1 = audioCtx.createOscillator();
+    const gain1 = audioCtx.createGain();
+    osc1.type = 'square';
+    osc1.frequency.setValueAtTime(1800, now);
+    gain1.gain.setValueAtTime(0.18, now);
+    gain1.gain.exponentialRampToValueAtTime(0.0001, now + 0.045);
+    osc1.connect(gain1).connect(audioCtx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.05);
+    // lower "clack" right after (shutter close)
+    const osc2 = audioCtx.createOscillator();
+    const gain2 = audioCtx.createGain();
+    osc2.type = 'square';
+    osc2.frequency.setValueAtTime(700, now + 0.055);
+    gain2.gain.setValueAtTime(0.14, now + 0.055);
+    gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.11);
+    osc2.connect(gain2).connect(audioCtx.destination);
+    osc2.start(now + 0.055);
+    osc2.stop(now + 0.12);
+  }catch(e){ /* audio not available — silently skip */ }
+}
 
 async function openCamera(){
   try{
@@ -1056,6 +1084,7 @@ document.getElementById('cameraDoneBtn').addEventListener('click', closeCamera);
 document.getElementById('cameraShutterBtn').addEventListener('click', ()=>{
   const pin = currentEditingPin();
   if(!pin || !cameraVideo.videoWidth) return;
+  playShutterSound();
   cameraCanvas.width = cameraVideo.videoWidth;
   cameraCanvas.height = cameraVideo.videoHeight;
   const ctx = cameraCanvas.getContext('2d');
