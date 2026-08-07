@@ -809,6 +809,7 @@ const I18N = {
     toastLoaded:(n)=>`データを読み込みました（${n}件のピン）`, toastInvalid:'データファイルが無効です',
     toastNoPinForReport:'レポートに出力できるピンがありません',
     toastCameraError:'カメラを起動できません。「ライブラリから選択」をご利用ください。',
+    mergeConfirm:'すでにピンがあります。\n\nOK＝読み込むデータを「追加（結合）」する（例：2人で撮影したデータを1つにまとめる場合）\nキャンセル＝現在のデータを新しいファイルで「上書き」する',
     reportPage:(n)=>`${n}ページ目`, reportNoPhoto:'写真なし', langBtn:'🌐 VI',
     lockTitle:'アクセス制限', lockDesc:'パスワードを入力してください', lockSubmit:'確認', lockError:'パスワードが正しくありません'
   },
@@ -830,6 +831,7 @@ const I18N = {
     toastLoaded:(n)=>`Đã nạp lại dữ liệu (${n} ghim)`, toastInvalid:'File dữ liệu không hợp lệ',
     toastNoPinForReport:'Chưa có ghim nào để xuất báo cáo',
     toastCameraError:'Không thể mở camera. Vui lòng dùng "Chọn từ thư viện".',
+    mergeConfirm:'Bạn đang có sẵn dữ liệu trong app.\n\nOK = GỘP file vừa chọn vào dữ liệu hiện có (dùng khi 2 người cùng khảo sát muốn hợp dữ liệu lại)\nHủy = THAY THẾ toàn bộ dữ liệu hiện có bằng file mới',
     reportPage:(n)=>`Trang ${n}`, reportNoPhoto:'Không có ảnh', langBtn:'🌐 日本語',
     lockTitle:'Khu vực giới hạn', lockDesc:'Vui lòng nhập mật khẩu', lockSubmit:'Xác nhận', lockError:'Mật khẩu không đúng'
   }
@@ -1350,13 +1352,35 @@ document.getElementById('importJsonInput').addEventListener('change', async (e)=
   const text = await file.text();
   try{
     const data = JSON.parse(text);
-    pins = data.pins || [];
+    const importedPins = data.pins || [];
+
+    if(pins.length > 0){
+      // Existing data already present — ask whether to merge or replace.
+      const wantsMerge = confirm(t('mergeConfirm'));
+      if(wantsMerge){
+        let maxNum = pins.reduce((m,p)=>Math.max(m, p.number), 0);
+        const seenIds = new Set(pins.map(p=>p.id));
+        const merged = importedPins.map(p=>{
+          let id = p.id;
+          while(seenIds.has(id)){ id = id + '_m' + Math.random().toString(36).slice(2,5); }
+          seenIds.add(id);
+          return {...p, id, number: ++maxNum};
+        });
+        pins = pins.concat(merged);
+      }else{
+        pins = importedPins;
+      }
+    }else{
+      pins = importedPins;
+    }
+
     nextPinNumber = pins.reduce((m,p)=>Math.max(m, p.number+1), 1);
     redrawPins();
     showToast(t('toastLoaded')(pins.length));
   }catch(err){
     showToast(t('toastInvalid'));
   }
+  document.getElementById('importJsonInput').value = '';
 });
 
 // ---------- Print report ----------
