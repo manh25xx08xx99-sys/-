@@ -436,31 +436,57 @@
     .stage-wrap{padding:14px;}
   }
 
-  /* Print report */
+  /* Print report — A3 landscape: page 1 = plan with numbered pins, then photo pages (20/page) */
+  @page{ size: A3 landscape; margin: 10mm; }
   @media print{
     body{background:#fff;color:#000;}
-    header, aside, .stage.empty{display:none !important;}
+    header, aside, .stage-wrap{display:none !important;}
     .layout{display:block;}
-    .stage-wrap{padding:0;display:block;}
-    .stage{box-shadow:none;}
     .report-only{display:block !important;}
   }
   .report-only{display:none;}
-  .report-photo-block{
-    margin-top:22px;
-    page-break-inside:avoid;
+
+  .report-plan-page{
+    width:100%;
+    height:277mm;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    page-break-after:always;
   }
-  .report-photo-block h4{
+  .report-plan-page img{max-width:100%;max-height:100%;object-fit:contain;}
+
+  .report-photo-page{
+    width:100%;
+    height:277mm;
+    display:grid;
+    grid-template-columns:repeat(5,1fr);
+    grid-template-rows:repeat(4,1fr);
+    gap:5mm;
+    page-break-after:always;
+  }
+  .report-photo-item{
+    position:relative;
+    border:1px solid #ccc;
+    border-radius:2mm;
+    overflow:hidden;
+    background:#f4f4f4;
+  }
+  .report-photo-item img{width:100%;height:100%;object-fit:cover;display:block;}
+  .report-photo-badge{
+    position:absolute;top:2mm;left:2mm;
+    background:#FF6B35;color:#1A0B02;
+    font-weight:700;font-size:10.5px;
+    border-radius:3mm;
+    padding:1mm 2.5mm;
     font-family:'IBM Plex Mono',monospace;
-    font-size:13px;
-    color:#000;
-    border-bottom:1px solid #ccc;
-    padding-bottom:4px;
   }
-  .report-photo-grid{
-    display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;
+  .report-photo-caption{
+    position:absolute;bottom:0;left:0;right:0;
+    background:rgba(0,0,0,.6);color:#fff;
+    font-size:8.5px;padding:1mm 2mm;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   }
-  .report-photo-grid img{width:100%;border-radius:4px;border:1px solid #ccc;}
 
   /* ---------- Continuous camera modal ---------- */
   .camera-wrap{
@@ -1334,21 +1360,84 @@ document.getElementById('importJsonInput').addEventListener('change', async (e)=
 });
 
 // ---------- Print report ----------
-document.getElementById('printBtn').addEventListener('click', ()=>{
+// Renders a PDF page to an image with numbered pin markers drawn directly
+// onto it (baked in), independent of whatever zoom the user currently has
+// on screen — used as the full-page plan sheet in the printed report.
+async function renderPlanSnapshot(pageNum, targetWidthPx){
+  const page = await pdfDoc.getPage(pageNum);
+  const nativeViewport = page.getViewport({scale:1});
+  const scale = targetWidthPx / nativeViewport.width;
+  const viewport = page.getViewport({scale});
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext('2d');
+  await page.render({canvasContext: ctx, viewport}).promise;
+
+  const pagePins = pins.filter(p=>p.page===pageNum);
+  const r = Math.max(12, viewport.width * 0.010);
+  ctx.font = 'bold ' + Math.max(14, viewport.width * 0.013) + 'px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  pagePins.forEach(p=>{
+    const x = viewport.width * (p.xPct / 100);
+    const y = viewport.height * (p.yPct / 100);
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#FF6B35';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#1A0B02';
+    ctx.stroke();
+    ctx.fillStyle = '#1A0B02';
+    ctx.fillText(String(p.number), x, y + 1);
+  });
+  return canvas.toDataURL('image/png');
+}
+
+const PHOTOS_PER_REPORT_PAGE = 20;
+
+document.getElementById('printBtn').addEventListener('click', async ()=>{
   if(pins.length === 0){ showToast(t('toastNoPinForReport')); window.print(); return; }
   const root = document.getElementById('reportRoot');
   root.innerHTML = '';
   const pagesUsed = [...new Set(pins.map(p=>p.page))].sort((a,b)=>a-b);
-  pagesUsed.forEach(pageNum=>{
+
+  for(const pageNum of pagesUsed){
     const pagePins = pins.filter(p=>p.page===pageNum);
+
+    // Page: full A3-landscape sheet with the plan + numbered pins
+    const planImg = await renderPlanSnapshot(pageNum, 2200);
+    const planPage = document.createElement('div');
+    planPage.className = 'report-plan-page';
+    planPage.innerHTML = `<img src="${planImg}">`;
+    root.appendChild(planPage);
+
+    // Pages: photos, evenly sized, numbered to match the plan — 20 per page
+    const flatPhotos = [];
     pagePins.forEach(p=>{
-      const block = document.createElement('div');
-      block.className = 'report-photo-block';
-      block.innerHTML = `<h4>${t('reportPage')(pageNum)} — ${t('pinLabelPrefix')}${p.number} ${p.label ? '— ' + escapeHtml(p.label) : ''}</h4>
-        <div class="report-photo-grid">${p.photos.map(ph=>`<img src="${ph.dataUrl}">`).join('') || `<p style="color:#888;font-size:12px;">${t('reportNoPhoto')}</p>`}</div>`;
-      root.appendChild(block);
+      p.photos.forEach(ph=>{
+        flatPhotos.push({number: p.number, label: p.label, dataUrl: ph.dataUrl});
+      });
     });
-  });
+
+    for(let i=0; i<flatPhotos.length; i+=PHOTOS_PER_REPORT_PAGE){
+      const chunk = flatPhotos.slice(i, i + PHOTOS_PER_REPORT_PAGE);
+      const photoPage = document.createElement('div');
+      photoPage.className = 'report-photo-page';
+      photoPage.innerHTML = chunk.map(ph => `
+        <div class="report-photo-item">
+          <img src="${ph.dataUrl}">
+          <span class="report-photo-badge">${t('pinLabelPrefix')}${ph.number}</span>
+          ${ph.label ? `<span class="report-photo-caption">${escapeHtml(ph.label)}</span>` : ''}
+        </div>`).join('');
+      root.appendChild(photoPage);
+    }
+  }
+
+  // Avoid a trailing blank page from the last forced page-break
+  if(root.lastElementChild) root.lastElementChild.style.pageBreakAfter = 'auto';
+
   window.print();
 });
 
