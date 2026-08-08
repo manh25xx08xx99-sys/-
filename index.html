@@ -269,10 +269,9 @@
   }
   .area-shape.active{ fill:rgba(63,169,126,0.28); stroke:var(--ok); }
   .area-draft{
-    fill:none;
+    fill:rgba(255,107,53,0.35);
     stroke:var(--accent);
     stroke-width:2.5;
-    stroke-dasharray:6 5;
     stroke-linejoin:round;
     pointer-events:none;
   }
@@ -785,7 +784,7 @@
       <button id="zoomOutBtn">－</button>
     </div>
     <div class="area-draw-bar" id="areaDrawBar">
-      <span class="hint"><span id="areaDrawHintLabel">角をタップ</span> (<b><span id="areaPointCount">0</span></b>)</span>
+      <span class="hint"><span id="areaDrawHintLabel">角をタップ</span></span>
       <button class="btn-undo" id="areaUndoBtn" disabled>↩︎</button>
       <button class="btn-cancel" id="areaCancelBtn" disabled>✕</button>
       <button class="btn-finish" id="areaFinishBtn" disabled>✓</button>
@@ -1261,7 +1260,6 @@ const areaDrawBar = document.getElementById('areaDrawBar');
 const areaUndoBtn = document.getElementById('areaUndoBtn');
 const areaFinishBtn = document.getElementById('areaFinishBtn');
 const areaCancelBtn = document.getElementById('areaCancelBtn');
-const areaPointCount = document.getElementById('areaPointCount');
 
 function setupAreaDrawing(){
   currentAreaPoints = [];
@@ -1311,7 +1309,6 @@ function cancelAreaDrawing(){
 
 function updateAreaDrawBar(){
   const n = currentAreaPoints.length;
-  areaPointCount.textContent = n;
   areaUndoBtn.disabled = n === 0;
   areaFinishBtn.disabled = n < 3;
   areaCancelBtn.disabled = n === 0;
@@ -1324,10 +1321,11 @@ function drawAreaDraft(){
   const svgNS = 'http://www.w3.org/2000/svg';
 
   if(currentAreaPoints.length >= 2){
-    const line = document.createElementNS(svgNS, 'polyline');
-    line.setAttribute('class', 'area-draft');
-    line.setAttribute('points', currentAreaPoints.map(p=>p.x+','+p.y).join(' '));
-    svg.appendChild(line);
+    // polygon auto-closes the shape, giving a live "ink fill" preview as points are added
+    const shape = document.createElementNS(svgNS, 'polygon');
+    shape.setAttribute('class', 'area-draft');
+    shape.setAttribute('points', currentAreaPoints.map(p=>p.x+','+p.y).join(' '));
+    svg.appendChild(shape);
   }
   currentAreaPoints.forEach((p, i)=>{
     const dot = document.createElementNS(svgNS, 'circle');
@@ -1724,13 +1722,11 @@ function closeModal(){
   const item = currentEditingPin();
   if(item){
     item.label = pinLabelInput.value.trim();
-    if(item.photos.length === 0 && item.label === ''){
-      // discard empty pin/area created without any content
-      if(editingType === 'area'){
-        areas = areas.filter(a=>a.id !== item.id);
-      }else{
-        pins = pins.filter(p=>p.id !== item.id);
-      }
+    // Only auto-discard empty PINS (a bare point with no note/photo carries
+    // no information). Areas are always kept — the drawn shape itself is
+    // meaningful on the plan even with no note or photo attached.
+    if(editingType === 'pin' && item.photos.length === 0 && item.label === ''){
+      pins = pins.filter(p=>p.id !== item.id);
     }
   }
   pinModal.classList.add('hidden');
