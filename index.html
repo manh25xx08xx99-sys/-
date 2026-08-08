@@ -123,6 +123,22 @@
   }
   .pagebar button{padding:6px 10px;background:var(--navy-mid);color:var(--paper);border:1px solid var(--panel-line);}
   .pagebar button:disabled{opacity:.35;cursor:not-allowed;}
+  .mode-toggle{
+    display:flex;
+    border:1px solid var(--panel-line);
+    border-radius:8px;
+    overflow:hidden;
+  }
+  .mode-btn{
+    background:var(--navy-mid);
+    color:#8FA4C4;
+    border-radius:0;
+    padding:8px 12px;
+    font-size:15px;
+    border-right:1px solid var(--panel-line);
+  }
+  .mode-btn:last-child{border-right:none;}
+  .mode-btn.active{background:var(--accent);color:#1A0B02;}
 
   /* ---------- Layout ---------- */
   .layout{
@@ -234,6 +250,50 @@
     pointer-events:none;
     z-index:9;
   }
+
+  /* ---------- Area drawing ---------- */
+  #areaOverlay{
+    position:absolute;
+    top:0;left:0;
+    width:100%;height:100%;
+    z-index:8;
+    pointer-events:none;
+  }
+  .stage.area-mode{ touch-action:none; }
+  .area-shape{
+    fill:rgba(255,107,53,0.22);
+    stroke:var(--accent);
+    stroke-width:2.5;
+    stroke-linejoin:round;
+    cursor:pointer;
+    pointer-events:auto;
+  }
+  .area-shape.active{ fill:rgba(63,169,126,0.28); stroke:var(--ok); }
+  .area-draft{
+    fill:rgba(255,107,53,0.15);
+    stroke:var(--accent);
+    stroke-width:2.5;
+    stroke-dasharray:6 5;
+    stroke-linejoin:round;
+    pointer-events:none;
+  }
+  .area-badge{
+    position:absolute;
+    transform:translate(-50%,-50%);
+    background:var(--accent);
+    color:#1A0B02;
+    font-family:'IBM Plex Mono',monospace;
+    font-weight:700;
+    font-size:11px;
+    border:2px solid #1A0B02;
+    border-radius:50%;
+    width:24px;height:24px;
+    display:flex;align-items:center;justify-content:center;
+    z-index:9;
+    cursor:pointer;
+    pointer-events:auto;
+  }
+  .area-badge.active{background:var(--ok);}
 
   /* ---------- Sidebar ---------- */
   aside{
@@ -660,6 +720,10 @@
     <button id="nextPage">›</button>
   </div>
 
+  <div class="mode-toggle" id="modeToggle" style="display:none;">
+    <button class="mode-btn active" id="modePinBtn" data-mode="pin">📍</button>
+    <button class="mode-btn" id="modeAreaBtn" data-mode="area">🖊️</button>
+  </div>
   <button class="btn-ghost btn-sm" id="langToggle">🌐 VI</button>
   <input type="file" id="pdfInput" accept="application/pdf">
   <button class="btn-ghost" id="loadPdfBtn">📄 図面PDFを読み込む</button>
@@ -692,6 +756,11 @@
     <div class="pin-list" id="pinList">
       <div class="empty-list">このページにはまだピンがありません。<br>PDFを読み込んで図面をタップしてください。</div>
     </div>
+    <div class="aside-head" id="areaListHead" style="display:none;">
+      <h3><span id="areaListTitleText">エリア一覧</span> <span class="count mono" id="areaCount">0</span></h3>
+      <p id="areaListDescText">🖊️ に切り替えて図面をなぞって範囲を描く</p>
+    </div>
+    <div class="pin-list" id="areaList" style="display:none;"></div>
     <div class="aside-foot">
       <button class="btn-ghost btn-sm" id="exportJsonBtn">⬇️ データを保存 (.json)</button>
       <input type="file" id="importJsonInput" accept="application/json" class="hidden">
@@ -833,6 +902,9 @@ const I18N = {
     toastCameraError:'カメラを起動できません。「ライブラリから選択」をご利用ください。',
     mergeConfirm:'すでにピンがあります。\n\nOK＝読み込むデータを「追加（結合）」する（例：2人で撮影したデータを1つにまとめる場合）\nキャンセル＝現在のデータを新しいファイルで「上書き」する',
     toastVoiceError:'音声入力を開始できませんでした。マイクの許可をご確認ください。',
+    areaListTitle:'エリア一覧', areaListDesc:'🖊️ に切り替えて図面をなぞって範囲を描く',
+    areaListEmpty:'このページにはまだエリアがありません。<br>🖊️ に切り替えて図面をなぞってください。',
+    areaLabelPrefix:'エリア #', toastAreaDeleted:'エリアを削除しました',
     reportPage:(n)=>`${n}ページ目`, reportNoPhoto:'写真なし', langBtn:'🌐 VI',
     lockTitle:'アクセス制限', lockDesc:'パスワードを入力してください', lockSubmit:'確認', lockError:'パスワードが正しくありません'
   },
@@ -856,6 +928,9 @@ const I18N = {
     toastCameraError:'Không thể mở camera. Vui lòng dùng "Chọn từ thư viện".',
     mergeConfirm:'Bạn đang có sẵn dữ liệu trong app.\n\nOK = GỘP file vừa chọn vào dữ liệu hiện có (dùng khi 2 người cùng khảo sát muốn hợp dữ liệu lại)\nHủy = THAY THẾ toàn bộ dữ liệu hiện có bằng file mới',
     toastVoiceError:'Không thể bắt đầu ghi âm. Vui lòng kiểm tra quyền truy cập micro.',
+    areaListTitle:'Danh sách vùng', areaListDesc:'Chuyển sang 🖊️ rồi tô lên bản vẽ để vẽ vùng',
+    areaListEmpty:'Chưa có vùng nào trên trang này.<br>Chuyển sang 🖊️ rồi tô lên bản vẽ.',
+    areaLabelPrefix:'VÙNG #', toastAreaDeleted:'Đã xoá vùng',
     reportPage:(n)=>`Trang ${n}`, reportNoPhoto:'Không có ảnh', langBtn:'🌐 日本語',
     lockTitle:'Khu vực giới hạn', lockDesc:'Vui lòng nhập mật khẩu', lockSubmit:'Xác nhận', lockError:'Mật khẩu không đúng'
   }
@@ -889,6 +964,14 @@ function applyLanguage(){
   document.getElementById('lockDescText').textContent = t('lockDesc');
   document.getElementById('lockSubmitBtn').textContent = t('lockSubmit');
   document.getElementById('lockErrorText').textContent = t('lockError');
+  document.getElementById('areaListTitleText').textContent = t('areaListTitle');
+  document.getElementById('areaListDescText').textContent = t('areaListDesc');
+  if(!pinModal.classList.contains('hidden')){
+    const item = currentEditingPin();
+    if(item){
+      modalPinNum.textContent = (editingType === 'area' ? t('areaLabelPrefix') : t('pinLabelPrefix')) + item.number;
+    }
+  }
   redrawPins();
   if(!pinModal.classList.contains('hidden')) renderPhotoGrid();
 }
@@ -906,6 +989,10 @@ let pins = [];          // {id, page, xPct, yPct, label, photos:[{id,dataUrl}]}
 let activePinId = null;
 let pendingClick = null; // {xPct,yPct} while creating a new pin
 let nextPinNumber = 1;
+let areas = [];          // {id, page, points:[{x,y}], label, photos:[{id,dataUrl}]}
+let activeAreaId = null;
+let nextAreaNumber = 1;
+let interactionMode = 'pin'; // 'pin' | 'area'
 let zoomLevel = 1;
 let renderedZoom = 1;
 let baseFitScale = 1;
@@ -921,6 +1008,10 @@ const pagebar = document.getElementById('pagebar');
 const pageLabel = document.getElementById('pageLabel');
 const pinList = document.getElementById('pinList');
 const pinCount = document.getElementById('pinCount');
+const areaListHead = document.getElementById('areaListHead');
+const areaList = document.getElementById('areaList');
+const areaCount = document.getElementById('areaCount');
+const modeToggle = document.getElementById('modeToggle');
 const toast = document.getElementById('toast');
 
 function showToast(msg){
@@ -951,6 +1042,14 @@ document.getElementById('nextPage').addEventListener('click', ()=>{ if(currentPa
 async function renderPage(){
   stage.classList.remove('empty');
   stage.innerHTML = '';
+
+  // SVG overlay for drawn areas (sits above the canvas, below pins)
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('id', 'areaOverlay');
+  svg.setAttribute('preserveAspectRatio', 'none');
+  stage.appendChild(svg);
+
   const page = await pdfDoc.getPage(currentPage);
   const containerWidth = Math.min(stageWrap.clientWidth - 56, 1100);
   const nativeViewport = page.getViewport({scale:1});
@@ -958,12 +1057,16 @@ async function renderPage(){
 
   pageLabel.textContent = currentPage + ' / ' + totalPages;
   zoomControls.style.display = 'flex';
+  modeToggle.style.display = 'flex';
+  areaListHead.style.display = 'block';
+  areaList.style.display = 'flex';
 
   zoomLevel = 1;
   renderedZoom = 1;
   await renderCanvasAtZoom(1);
 
   stage.addEventListener('click', onStageClick);
+  setupAreaDrawing();
   redrawPins();
 }
 
@@ -1083,11 +1186,150 @@ stageWrap.addEventListener('touchend', (e)=>{
 });
 
 function onStageClick(e){
+  if(interactionMode !== 'pin') return;
   const rect = stage.getBoundingClientRect();
   const xPct = ((e.clientX - rect.left) / rect.width) * 100;
   const yPct = ((e.clientY - rect.top) / rect.height) * 100;
   pendingClick = {xPct, yPct};
   openPinModal(null);
+}
+
+// ---------- Mode toggle (pin vs area) ----------
+document.getElementById('modePinBtn').addEventListener('click', ()=>setInteractionMode('pin'));
+document.getElementById('modeAreaBtn').addEventListener('click', ()=>setInteractionMode('area'));
+
+function setInteractionMode(mode){
+  interactionMode = mode;
+  document.getElementById('modePinBtn').classList.toggle('active', mode === 'pin');
+  document.getElementById('modeAreaBtn').classList.toggle('active', mode === 'area');
+  stage.classList.toggle('area-mode', mode === 'area');
+}
+
+// ---------- Area drawing (freehand, pointer events) ----------
+let isDrawingArea = false;
+let currentAreaPoints = [];
+let draftPolyline = null;
+
+function setupAreaDrawing(){
+  stage.addEventListener('pointerdown', (e)=>{
+    if(interactionMode !== 'area') return;
+    isDrawingArea = true;
+    currentAreaPoints = [];
+    addAreaPoint(e);
+    stage.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+
+  stage.addEventListener('pointermove', (e)=>{
+    if(!isDrawingArea || interactionMode !== 'area') return;
+    addAreaPoint(e);
+    e.preventDefault();
+  });
+
+  stage.addEventListener('pointerup', (e)=>{
+    if(!isDrawingArea) return;
+    isDrawingArea = false;
+    finishAreaDrawing();
+  });
+  stage.addEventListener('pointercancel', ()=>{ isDrawingArea = false; finishAreaDrawing(); });
+}
+
+function addAreaPoint(e){
+  const rect = stage.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * 100;
+  const y = ((e.clientY - rect.top) / rect.height) * 100;
+  const last = currentAreaPoints[currentAreaPoints.length - 1];
+  if(last){
+    const dist = Math.hypot(x - last.x, y - last.y);
+    if(dist < 0.8) return; // throttle — avoid too many points
+  }
+  currentAreaPoints.push({x, y});
+  drawDraftPolyline();
+}
+
+function drawDraftPolyline(){
+  const svg = document.getElementById('areaOverlay');
+  if(!svg) return;
+  if(draftPolyline) draftPolyline.remove();
+  if(currentAreaPoints.length < 2) return;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  draftPolyline = document.createElementNS(svgNS, 'polyline');
+  draftPolyline.setAttribute('class', 'area-draft');
+  draftPolyline.setAttribute('points', currentAreaPoints.map(p=>p.x+','+p.y).join(' '));
+  svg.appendChild(draftPolyline);
+}
+
+function finishAreaDrawing(){
+  if(draftPolyline){ draftPolyline.remove(); draftPolyline = null; }
+  if(currentAreaPoints.length < 3){
+    currentAreaPoints = [];
+    return; // too small to be a real shape
+  }
+  const a = {
+    id: 'area_' + Date.now(),
+    number: nextAreaNumber++,
+    page: currentPage,
+    points: currentAreaPoints,
+    label: '',
+    photos: []
+  };
+  areas.push(a);
+  currentAreaPoints = [];
+  openAreaModal(a.id);
+  redrawPins();
+}
+
+// ---------- Area rendering ----------
+function redrawAreas(){
+  const svg = document.getElementById('areaOverlay');
+  if(!svg) return;
+  svg.querySelectorAll('.area-shape').forEach(el=>el.remove());
+  stage.querySelectorAll('.area-badge').forEach(el=>el.remove());
+  const svgNS = 'http://www.w3.org/2000/svg';
+
+  areas.filter(a=>a.page===currentPage).forEach(a=>{
+    const poly = document.createElementNS(svgNS, 'polygon');
+    poly.setAttribute('class', 'area-shape' + (a.id===activeAreaId ? ' active' : ''));
+    poly.setAttribute('points', a.points.map(p=>p.x+','+p.y).join(' '));
+    poly.addEventListener('click', (ev)=>{ ev.stopPropagation(); openAreaModal(a.id); });
+    svg.appendChild(poly);
+
+    // centroid, for the number badge
+    const cx = a.points.reduce((s,p)=>s+p.x,0) / a.points.length;
+    const cy = a.points.reduce((s,p)=>s+p.y,0) / a.points.length;
+    const badge = document.createElement('div');
+    badge.className = 'area-badge' + (a.id===activeAreaId ? ' active' : '');
+    badge.style.left = cx + '%';
+    badge.style.top = cy + '%';
+    badge.textContent = a.number;
+    badge.addEventListener('click', (ev)=>{ ev.stopPropagation(); openAreaModal(a.id); });
+    stage.appendChild(badge);
+  });
+  renderAreaList();
+}
+
+function renderAreaList(){
+  const pageAreas = areas.filter(a=>a.page===currentPage);
+  areaCount.textContent = areas.length;
+  if(pageAreas.length === 0){
+    areaList.innerHTML = `<div class="empty-list">${t('areaListEmpty')}</div>`;
+    return;
+  }
+  areaList.innerHTML = '';
+  pageAreas.forEach(a=>{
+    const card = document.createElement('div');
+    card.className = 'pin-card' + (a.id===activeAreaId ? ' active' : '');
+    const thumbStyle = a.photos.length ? `background-image:url('${a.photos[0].dataUrl}')` : '';
+    card.innerHTML = `
+      <div class="thumb" style="${thumbStyle}">${a.photos.length ? '' : t('noPhoto')}</div>
+      <div class="meta">
+        <div class="row1">${t('areaLabelPrefix')}${a.number}</div>
+        <div class="label">${a.label ? escapeHtml(a.label) : t('noName')}</div>
+        <div class="sub">${a.photos.length} ${t('photosSuffix')}</div>
+      </div>`;
+    card.addEventListener('click', ()=>openAreaModal(a.id));
+    areaList.appendChild(card);
+  });
 }
 
 // ---------- Pin rendering ----------
@@ -1103,6 +1345,7 @@ function redrawPins(){
     el.addEventListener('click', (ev)=>{ ev.stopPropagation(); openPinModal(p.id); });
     stage.appendChild(el);
   });
+  redrawAreas();
   renderPinList();
 }
 
@@ -1143,6 +1386,7 @@ const photoCountLabel = document.getElementById('photoCountLabel');
 const photoInput = document.getElementById('photoInput');
 
 let editingPinId = null;
+let editingType = 'pin'; // 'pin' | 'area' — which array editingPinId refers to
 
 // ---------- Voice-to-text for the note field ----------
 const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1218,6 +1462,7 @@ function stopVoiceInput(){
 }
 
 function openPinModal(pinId){
+  editingType = 'pin';
   if(pinId === null){
     // creating new pin
     const p = {
@@ -1235,15 +1480,33 @@ function openPinModal(pinId){
     editingPinId = pinId;
   }
   activePinId = editingPinId;
+  activeAreaId = null;
   const pin = pins.find(p=>p.id===editingPinId);
-  modalPinNum.textContent = '#' + pin.number;
+  modalPinNum.textContent = t('pinLabelPrefix') + pin.number;
   pinLabelInput.value = pin.label;
   renderPhotoGrid();
   pinModal.classList.remove('hidden');
   redrawPins();
 }
 
-function currentEditingPin(){ return pins.find(p=>p.id===editingPinId); }
+function openAreaModal(areaId){
+  editingType = 'area';
+  editingPinId = areaId;
+  activeAreaId = areaId;
+  activePinId = null;
+  const area = areas.find(a=>a.id===areaId);
+  modalPinNum.textContent = t('areaLabelPrefix') + area.number;
+  pinLabelInput.value = area.label;
+  renderPhotoGrid();
+  pinModal.classList.remove('hidden');
+  redrawPins();
+}
+
+function currentEditingPin(){
+  return editingType === 'area'
+    ? areas.find(a=>a.id===editingPinId)
+    : pins.find(p=>p.id===editingPinId);
+}
 
 function renderPhotoGrid(){
   const pin = currentEditingPin();
@@ -1398,25 +1661,35 @@ document.getElementById('cameraShutterBtn').addEventListener('click', ()=>{
 
 function closeModal(){
   stopVoiceInput();
-  const pin = currentEditingPin();
-  if(pin){
-    pin.label = pinLabelInput.value.trim();
-    if(pin.photos.length === 0 && pin.label === ''){
-      // discard empty pin created without any content
-      pins = pins.filter(p=>p.id !== pin.id);
+  const item = currentEditingPin();
+  if(item){
+    item.label = pinLabelInput.value.trim();
+    if(item.photos.length === 0 && item.label === ''){
+      // discard empty pin/area created without any content
+      if(editingType === 'area'){
+        areas = areas.filter(a=>a.id !== item.id);
+      }else{
+        pins = pins.filter(p=>p.id !== item.id);
+      }
     }
   }
   pinModal.classList.add('hidden');
   activePinId = null;
+  activeAreaId = null;
   redrawPins();
 }
 
 document.getElementById('deletePinBtn').addEventListener('click', ()=>{
-  pins = pins.filter(p=>p.id !== editingPinId);
+  if(editingType === 'area'){
+    areas = areas.filter(a=>a.id !== editingPinId);
+  }else{
+    pins = pins.filter(p=>p.id !== editingPinId);
+  }
   pinModal.classList.add('hidden');
   activePinId = null;
+  activeAreaId = null;
   redrawPins();
-  showToast(t('toastPinDeleted'));
+  showToast(editingType === 'area' ? t('toastAreaDeleted') : t('toastPinDeleted'));
 });
 
 pinModal.addEventListener('click', (e)=>{ if(e.target === pinModal) closeModal(); });
@@ -1432,8 +1705,8 @@ lightbox.addEventListener('click', (e)=>{ if(e.target===lightbox) lightbox.class
 
 // ---------- Export / Import JSON ----------
 document.getElementById('exportJsonBtn').addEventListener('click', ()=>{
-  if(pins.length === 0){ showToast(t('toastNoData')); return; }
-  const data = JSON.stringify({pins, savedAt: new Date().toISOString()});
+  if(pins.length === 0 && areas.length === 0){ showToast(t('toastNoData')); return; }
+  const data = JSON.stringify({pins, areas, savedAt: new Date().toISOString()});
   const blob = new Blob([data], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1451,30 +1724,45 @@ document.getElementById('importJsonInput').addEventListener('change', async (e)=
   try{
     const data = JSON.parse(text);
     const importedPins = data.pins || [];
+    const importedAreas = data.areas || [];
 
-    if(pins.length > 0){
+    const hasExisting = pins.length > 0 || areas.length > 0;
+    if(hasExisting){
       // Existing data already present — ask whether to merge or replace.
       const wantsMerge = confirm(t('mergeConfirm'));
       if(wantsMerge){
-        let maxNum = pins.reduce((m,p)=>Math.max(m, p.number), 0);
-        const seenIds = new Set(pins.map(p=>p.id));
-        const merged = importedPins.map(p=>{
+        let maxPinNum = pins.reduce((m,p)=>Math.max(m, p.number), 0);
+        const seenPinIds = new Set(pins.map(p=>p.id));
+        const mergedPins = importedPins.map(p=>{
           let id = p.id;
-          while(seenIds.has(id)){ id = id + '_m' + Math.random().toString(36).slice(2,5); }
-          seenIds.add(id);
-          return {...p, id, number: ++maxNum};
+          while(seenPinIds.has(id)){ id = id + '_m' + Math.random().toString(36).slice(2,5); }
+          seenPinIds.add(id);
+          return {...p, id, number: ++maxPinNum};
         });
-        pins = pins.concat(merged);
+        pins = pins.concat(mergedPins);
+
+        let maxAreaNum = areas.reduce((m,a)=>Math.max(m, a.number), 0);
+        const seenAreaIds = new Set(areas.map(a=>a.id));
+        const mergedAreas = importedAreas.map(a=>{
+          let id = a.id;
+          while(seenAreaIds.has(id)){ id = id + '_m' + Math.random().toString(36).slice(2,5); }
+          seenAreaIds.add(id);
+          return {...a, id, number: ++maxAreaNum};
+        });
+        areas = areas.concat(mergedAreas);
       }else{
         pins = importedPins;
+        areas = importedAreas;
       }
     }else{
       pins = importedPins;
+      areas = importedAreas;
     }
 
     nextPinNumber = pins.reduce((m,p)=>Math.max(m, p.number+1), 1);
+    nextAreaNumber = areas.reduce((m,a)=>Math.max(m, a.number+1), 1);
     redrawPins();
-    showToast(t('toastLoaded')(pins.length));
+    showToast(t('toastLoaded')(pins.length + areas.length));
   }catch(err){
     showToast(t('toastInvalid'));
   }
