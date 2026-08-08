@@ -370,6 +370,25 @@
     font-family:'IBM Plex Sans',sans-serif;
   }
   .field input[type=text]:focus{outline:none;border-color:var(--accent);}
+  .note-input-row{display:flex;gap:8px;}
+  .note-input-row input[type=text]{flex:1;}
+  .voice-btn{
+    flex-shrink:0;
+    width:44px;
+    justify-content:center;
+    background:var(--navy-mid);
+    color:var(--paper);
+    border:1px solid var(--panel-line);
+    font-size:16px;
+    padding:0;
+  }
+  .voice-btn:hover{border-color:var(--accent-dim);}
+  .voice-btn.recording{
+    background:var(--danger);
+    border-color:var(--danger);
+    animation:voicePulse 1s ease-in-out infinite;
+  }
+  @keyframes voicePulse{0%,100%{opacity:1;}50%{opacity:.55;}}
   .photo-grid{
     display:grid;
     grid-template-columns:repeat(3,1fr);
@@ -694,7 +713,10 @@
     <div class="modal-body">
       <div class="field">
         <label id="labelNoteText">位置メモ</label>
-        <input type="text" id="pinLabel" placeholder="例：A-B通り外壁、2階">
+        <div class="note-input-row">
+          <input type="text" id="pinLabel" placeholder="例：A-B通り外壁、2階">
+          <button type="button" id="voiceBtn" class="voice-btn" title="Voice input">🎤</button>
+        </div>
       </div>
       <div class="field">
         <label id="labelPhotosText">写真</label><span id="photoCountLabel" class="mono" style="text-transform:none;color:#8FA4C4;"></span>
@@ -810,6 +832,7 @@ const I18N = {
     toastNoPinForReport:'レポートに出力できるピンがありません',
     toastCameraError:'カメラを起動できません。「ライブラリから選択」をご利用ください。',
     mergeConfirm:'すでにピンがあります。\n\nOK＝読み込むデータを「追加（結合）」する（例：2人で撮影したデータを1つにまとめる場合）\nキャンセル＝現在のデータを新しいファイルで「上書き」する',
+    toastVoiceError:'音声入力を開始できませんでした。マイクの許可をご確認ください。',
     reportPage:(n)=>`${n}ページ目`, reportNoPhoto:'写真なし', langBtn:'🌐 VI',
     lockTitle:'アクセス制限', lockDesc:'パスワードを入力してください', lockSubmit:'確認', lockError:'パスワードが正しくありません'
   },
@@ -832,6 +855,7 @@ const I18N = {
     toastNoPinForReport:'Chưa có ghim nào để xuất báo cáo',
     toastCameraError:'Không thể mở camera. Vui lòng dùng "Chọn từ thư viện".',
     mergeConfirm:'Bạn đang có sẵn dữ liệu trong app.\n\nOK = GỘP file vừa chọn vào dữ liệu hiện có (dùng khi 2 người cùng khảo sát muốn hợp dữ liệu lại)\nHủy = THAY THẾ toàn bộ dữ liệu hiện có bằng file mới',
+    toastVoiceError:'Không thể bắt đầu ghi âm. Vui lòng kiểm tra quyền truy cập micro.',
     reportPage:(n)=>`Trang ${n}`, reportNoPhoto:'Không có ảnh', langBtn:'🌐 日本語',
     lockTitle:'Khu vực giới hạn', lockDesc:'Vui lòng nhập mật khẩu', lockSubmit:'Xác nhận', lockError:'Mật khẩu không đúng'
   }
@@ -1120,6 +1144,79 @@ const photoInput = document.getElementById('photoInput');
 
 let editingPinId = null;
 
+// ---------- Voice-to-text for the note field ----------
+const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+const voiceBtn = document.getElementById('voiceBtn');
+let recognizer = null;
+let isRecording = false;
+let voiceSafetyTimer = null;
+let voiceBaseText = '';
+
+if(!SpeechRecognitionCtor){
+  voiceBtn.style.display = 'none'; // graceful fallback — browser doesn't support it
+}else{
+  voiceBtn.addEventListener('click', ()=>{
+    if(isRecording){ stopVoiceInput(); } else { startVoiceInput(); }
+  });
+}
+
+function startVoiceInput(){
+  try{
+    recognizer = new SpeechRecognitionCtor();
+  }catch(e){
+    showToast(t('toastVoiceError'));
+    return;
+  }
+  recognizer.lang = currentLang === 'ja' ? 'ja-JP' : 'vi-VN';
+  recognizer.interimResults = true;
+  recognizer.continuous = false;
+  recognizer.maxAlternatives = 1;
+
+  voiceBaseText = pinLabelInput.value.trim();
+  let finalTranscript = '';
+
+  recognizer.onstart = ()=>{
+    isRecording = true;
+    voiceBtn.classList.add('recording');
+    // Safety net: some browsers (notably iOS Safari) occasionally never fire
+    // onend — force-stop after 12s so the mic doesn't stay "listening" forever.
+    voiceSafetyTimer = setTimeout(()=>{ try{ recognizer.stop(); }catch(e){} }, 12000);
+  };
+
+  recognizer.onresult = (e)=>{
+    let interim = '';
+    for(let i = e.resultIndex; i < e.results.length; i++){
+      const transcript = e.results[i][0].transcript;
+      if(e.results[i].isFinal){ finalTranscript += transcript; }
+      else{ interim += transcript; }
+    }
+    const combined = (finalTranscript + interim).trim();
+    pinLabelInput.value = voiceBaseText ? (voiceBaseText + ' ' + combined) : combined;
+  };
+
+  recognizer.onerror = (e)=>{
+    if(e.error !== 'aborted' && e.error !== 'no-speech'){
+      showToast(t('toastVoiceError'));
+    }
+  };
+
+  recognizer.onend = ()=>{
+    isRecording = false;
+    voiceBtn.classList.remove('recording');
+    clearTimeout(voiceSafetyTimer);
+  };
+
+  try{
+    recognizer.start();
+  }catch(e){
+    showToast(t('toastVoiceError'));
+  }
+}
+
+function stopVoiceInput(){
+  if(recognizer){ try{ recognizer.stop(); }catch(e){} }
+}
+
 function openPinModal(pinId){
   if(pinId === null){
     // creating new pin
@@ -1300,6 +1397,7 @@ document.getElementById('cameraShutterBtn').addEventListener('click', ()=>{
 });
 
 function closeModal(){
+  stopVoiceInput();
   const pin = currentEditingPin();
   if(pin){
     pin.label = pinLabelInput.value.trim();

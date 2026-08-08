@@ -2,7 +2,7 @@
 // Caches the app shell + its CDN dependencies (pdf.js, fonts) so the app
 // keeps working after the very first successful load, even with no internet.
 
-const CACHE_NAME = 'khao-sat-anh-v9';
+const CACHE_NAME = 'khao-sat-anh-v10';
 
 const PRECACHE_URLS = [
   './',
