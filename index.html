@@ -259,7 +259,6 @@
     z-index:8;
     pointer-events:none;
   }
-  .stage.area-mode{ touch-action:none; }
   .area-shape{
     fill:rgba(255,107,53,0.22);
     stroke:var(--accent);
@@ -270,11 +269,17 @@
   }
   .area-shape.active{ fill:rgba(63,169,126,0.28); stroke:var(--ok); }
   .area-draft{
-    fill:rgba(255,107,53,0.15);
+    fill:none;
     stroke:var(--accent);
     stroke-width:2.5;
     stroke-dasharray:6 5;
     stroke-linejoin:round;
+    pointer-events:none;
+  }
+  .area-draft-dot{
+    fill:#1A0B02;
+    stroke:var(--accent);
+    stroke-width:1;
     pointer-events:none;
   }
   .area-badge{
@@ -294,6 +299,39 @@
     pointer-events:auto;
   }
   .area-badge.active{background:var(--ok);}
+
+  .area-draw-bar{
+    position:absolute;
+    left:50%;
+    bottom:20px;
+    transform:translateX(-50%);
+    display:none;
+    align-items:center;
+    gap:6px;
+    background:var(--panel);
+    border:1px solid var(--panel-line);
+    border-radius:12px;
+    padding:8px;
+    box-shadow:0 12px 30px rgba(0,0,0,.45);
+    z-index:25;
+  }
+  .area-draw-bar .hint{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:#9FB2CC;
+    padding:0 8px;
+    white-space:nowrap;
+  }
+  .area-draw-bar .hint b{color:var(--accent);}
+  .area-draw-bar button{
+    padding:9px 13px;
+    font-size:13px;
+    border-radius:8px;
+  }
+  .area-draw-bar button:disabled{opacity:.35;}
+  .area-draw-bar .btn-finish{background:var(--ok);color:#06251a;}
+  .area-draw-bar .btn-cancel{background:transparent;color:var(--danger);border:1px solid #E6544A55;}
+  .area-draw-bar .btn-undo{background:var(--navy-mid);color:var(--paper);border:1px solid var(--panel-line);}
 
   /* ---------- Sidebar ---------- */
   aside{
@@ -746,6 +784,12 @@
       <button id="zoomResetBtn" class="mono"><span id="zoomPct">100%</span></button>
       <button id="zoomOutBtn">－</button>
     </div>
+    <div class="area-draw-bar" id="areaDrawBar">
+      <span class="hint"><span id="areaDrawHintLabel">角をタップ</span> (<b><span id="areaPointCount">0</span></b>)</span>
+      <button class="btn-undo" id="areaUndoBtn" disabled>↩︎</button>
+      <button class="btn-cancel" id="areaCancelBtn" disabled>✕</button>
+      <button class="btn-finish" id="areaFinishBtn" disabled>✓</button>
+    </div>
   </div>
 
   <aside>
@@ -904,7 +948,7 @@ const I18N = {
     toastVoiceError:'音声入力を開始できませんでした。マイクの許可をご確認ください。',
     areaListTitle:'エリア一覧', areaListDesc:'🖊️ に切り替えて図面をなぞって範囲を描く',
     areaListEmpty:'このページにはまだエリアがありません。<br>🖊️ に切り替えて図面をなぞってください。',
-    areaLabelPrefix:'エリア #', toastAreaDeleted:'エリアを削除しました',
+    areaLabelPrefix:'エリア #', toastAreaDeleted:'エリアを削除しました', areaDrawHintLabel:'角をタップ',
     reportPage:(n)=>`${n}ページ目`, reportNoPhoto:'写真なし', langBtn:'🌐 VI',
     lockTitle:'アクセス制限', lockDesc:'パスワードを入力してください', lockSubmit:'確認', lockError:'パスワードが正しくありません'
   },
@@ -930,7 +974,7 @@ const I18N = {
     toastVoiceError:'Không thể bắt đầu ghi âm. Vui lòng kiểm tra quyền truy cập micro.',
     areaListTitle:'Danh sách vùng', areaListDesc:'Chuyển sang 🖊️ rồi tô lên bản vẽ để vẽ vùng',
     areaListEmpty:'Chưa có vùng nào trên trang này.<br>Chuyển sang 🖊️ rồi tô lên bản vẽ.',
-    areaLabelPrefix:'VÙNG #', toastAreaDeleted:'Đã xoá vùng',
+    areaLabelPrefix:'VÙNG #', toastAreaDeleted:'Đã xoá vùng', areaDrawHintLabel:'Chạm từng góc',
     reportPage:(n)=>`Trang ${n}`, reportNoPhoto:'Không có ảnh', langBtn:'🌐 日本語',
     lockTitle:'Khu vực giới hạn', lockDesc:'Vui lòng nhập mật khẩu', lockSubmit:'Xác nhận', lockError:'Mật khẩu không đúng'
   }
@@ -966,6 +1010,7 @@ function applyLanguage(){
   document.getElementById('lockErrorText').textContent = t('lockError');
   document.getElementById('areaListTitleText').textContent = t('areaListTitle');
   document.getElementById('areaListDescText').textContent = t('areaListDesc');
+  document.getElementById('areaDrawHintLabel').textContent = t('areaDrawHintLabel');
   if(!pinModal.classList.contains('hidden')){
     const item = currentEditingPin();
     if(item){
@@ -1186,7 +1231,10 @@ stageWrap.addEventListener('touchend', (e)=>{
 });
 
 function onStageClick(e){
-  if(interactionMode !== 'pin') return;
+  if(interactionMode === 'area'){
+    handleAreaTap(e);
+    return;
+  }
   const rect = stage.getBoundingClientRect();
   const xPct = ((e.clientX - rect.left) / rect.width) * 100;
   const yPct = ((e.clientY - rect.top) / rect.height) * 100;
@@ -1199,72 +1247,46 @@ document.getElementById('modePinBtn').addEventListener('click', ()=>setInteracti
 document.getElementById('modeAreaBtn').addEventListener('click', ()=>setInteractionMode('area'));
 
 function setInteractionMode(mode){
+  if(interactionMode === 'area' && mode !== 'area') cancelAreaDrawing();
   interactionMode = mode;
   document.getElementById('modePinBtn').classList.toggle('active', mode === 'pin');
   document.getElementById('modeAreaBtn').classList.toggle('active', mode === 'area');
-  stage.classList.toggle('area-mode', mode === 'area');
+  areaDrawBar.style.display = mode === 'area' ? 'flex' : 'none';
+  updateAreaDrawBar();
 }
 
-// ---------- Area drawing (freehand, pointer events) ----------
-let isDrawingArea = false;
+// ---------- Area drawing (tap each corner, then Finish) ----------
 let currentAreaPoints = [];
-let draftPolyline = null;
+const areaDrawBar = document.getElementById('areaDrawBar');
+const areaUndoBtn = document.getElementById('areaUndoBtn');
+const areaFinishBtn = document.getElementById('areaFinishBtn');
+const areaCancelBtn = document.getElementById('areaCancelBtn');
+const areaPointCount = document.getElementById('areaPointCount');
 
 function setupAreaDrawing(){
-  stage.addEventListener('pointerdown', (e)=>{
-    if(interactionMode !== 'area') return;
-    isDrawingArea = true;
-    currentAreaPoints = [];
-    addAreaPoint(e);
-    stage.setPointerCapture(e.pointerId);
-    e.preventDefault();
-  });
-
-  stage.addEventListener('pointermove', (e)=>{
-    if(!isDrawingArea || interactionMode !== 'area') return;
-    addAreaPoint(e);
-    e.preventDefault();
-  });
-
-  stage.addEventListener('pointerup', (e)=>{
-    if(!isDrawingArea) return;
-    isDrawingArea = false;
-    finishAreaDrawing();
-  });
-  stage.addEventListener('pointercancel', ()=>{ isDrawingArea = false; finishAreaDrawing(); });
+  currentAreaPoints = [];
+  drawAreaDraft();
 }
 
-function addAreaPoint(e){
+function handleAreaTap(e){
   const rect = stage.getBoundingClientRect();
   const x = ((e.clientX - rect.left) / rect.width) * 100;
   const y = ((e.clientY - rect.top) / rect.height) * 100;
-  const last = currentAreaPoints[currentAreaPoints.length - 1];
-  if(last){
-    const dist = Math.hypot(x - last.x, y - last.y);
-    if(dist < 0.8) return; // throttle — avoid too many points
-  }
   currentAreaPoints.push({x, y});
-  drawDraftPolyline();
+  drawAreaDraft();
+  updateAreaDrawBar();
 }
 
-function drawDraftPolyline(){
-  const svg = document.getElementById('areaOverlay');
-  if(!svg) return;
-  if(draftPolyline) draftPolyline.remove();
-  if(currentAreaPoints.length < 2) return;
-  const svgNS = 'http://www.w3.org/2000/svg';
-  draftPolyline = document.createElementNS(svgNS, 'polyline');
-  draftPolyline.setAttribute('class', 'area-draft');
-  draftPolyline.setAttribute('points', currentAreaPoints.map(p=>p.x+','+p.y).join(' '));
-  svg.appendChild(draftPolyline);
-}
+areaUndoBtn.addEventListener('click', ()=>{
+  currentAreaPoints.pop();
+  drawAreaDraft();
+  updateAreaDrawBar();
+});
 
-function finishAreaDrawing(){
-  if(draftPolyline){ draftPolyline.remove(); draftPolyline = null; }
-  if(currentAreaPoints.length < 3){
-    currentAreaPoints = [];
-    return; // too small to be a real shape
-  }
+areaCancelBtn.addEventListener('click', cancelAreaDrawing);
+
+areaFinishBtn.addEventListener('click', ()=>{
+  if(currentAreaPoints.length < 3) return;
   const a = {
     id: 'area_' + Date.now(),
     number: nextAreaNumber++,
@@ -1275,8 +1297,46 @@ function finishAreaDrawing(){
   };
   areas.push(a);
   currentAreaPoints = [];
+  drawAreaDraft();
+  updateAreaDrawBar();
   openAreaModal(a.id);
   redrawPins();
+});
+
+function cancelAreaDrawing(){
+  currentAreaPoints = [];
+  drawAreaDraft();
+  updateAreaDrawBar();
+}
+
+function updateAreaDrawBar(){
+  const n = currentAreaPoints.length;
+  areaPointCount.textContent = n;
+  areaUndoBtn.disabled = n === 0;
+  areaFinishBtn.disabled = n < 3;
+  areaCancelBtn.disabled = n === 0;
+}
+
+function drawAreaDraft(){
+  const svg = document.getElementById('areaOverlay');
+  if(!svg) return;
+  svg.querySelectorAll('.area-draft, .area-draft-dot').forEach(el=>el.remove());
+  const svgNS = 'http://www.w3.org/2000/svg';
+
+  if(currentAreaPoints.length >= 2){
+    const line = document.createElementNS(svgNS, 'polyline');
+    line.setAttribute('class', 'area-draft');
+    line.setAttribute('points', currentAreaPoints.map(p=>p.x+','+p.y).join(' '));
+    svg.appendChild(line);
+  }
+  currentAreaPoints.forEach((p, i)=>{
+    const dot = document.createElementNS(svgNS, 'circle');
+    dot.setAttribute('class', 'area-draft-dot');
+    dot.setAttribute('cx', p.x);
+    dot.setAttribute('cy', p.y);
+    dot.setAttribute('r', i === 0 ? 1.4 : 1.0);
+    svg.appendChild(dot);
+  });
 }
 
 // ---------- Area rendering ----------
